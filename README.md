@@ -1,5 +1,7 @@
 # QQ Mail MCP
 
+English | [简体中文](README.zh-CN.md)
+
 A portable Model Context Protocol server that gives MCP-compatible local agents read-only access to QQ Mail and Foxmail over IMAP. It uses the official STDIO transport and does not depend on Codex-specific APIs.
 
 ## Requirements
