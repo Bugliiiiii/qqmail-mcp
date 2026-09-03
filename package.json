@@ -1,0 +1,42 @@
+{
+  "name": "qqmail-readonly-mcp",
+  "version": "1.2.1",
+  "type": "module",
+  "description": "Portable read-only QQ Mail MCP server over standard STDIO transport",
+  "license": "MIT",
+  "bin": {
+    "qqmail-readonly-mcp": "bin/qqmail-readonly-mcp.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "qqmail",
+    "foxmail",
+    "imap",
+    "email"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "check": "node --check src/index.js && node --test test/*.test.mjs",
+    "smoke": "node test/mcp-smoke.mjs",
+    "prepack": "npm run check && npm run smoke"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.27.1",
+    "imapflow": "1.7.0",
+    "mailparser": "3.9.20",
+    "zod": "4.3.6"
+  }
+}
