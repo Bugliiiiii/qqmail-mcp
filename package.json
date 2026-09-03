@@ -1,11 +1,16 @@
 {
-  "name": "qqmail-readonly-mcp",
+  "name": "@ethanli666/qqmail-mcp",
   "version": "1.2.1",
   "type": "module",
   "description": "Portable read-only QQ Mail MCP server over standard STDIO transport",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bugliiiiii/qqmail-mcp.git"
+  },
+  "homepage": "https://github.com/Bugliiiiii/qqmail-mcp#readme",
   "bin": {
-    "qqmail-readonly-mcp": "bin/qqmail-readonly-mcp.js"
+    "qqmail-mcp": "bin/qqmail-readonly-mcp.js"
   },
   "files": [
     "bin",

@@ -1,4 +1,4 @@
-# QQ Mail Read-only MCP
+# QQ Mail MCP
 
 A portable Model Context Protocol server that gives MCP-compatible local agents read-only access to QQ Mail and Foxmail over IMAP. It uses the official STDIO transport and does not depend on Codex-specific APIs.
 
@@ -44,7 +44,7 @@ Configure a local MCP client to run:
 
 ```text
 command: npx
-args: -y qqmail-readonly-mcp@1.2.1
+args: -y @ethanli666/qqmail-mcp@1.2.1
 environment: QQMAIL_USER, QQMAIL_PASS
 ```
 
@@ -55,7 +55,7 @@ Generic JSON-style client configuration:
   "mcpServers": {
     "qqmail": {
       "command": "npx",
-      "args": ["-y", "qqmail-readonly-mcp@1.2.1"],
+      "args": ["-y", "@ethanli666/qqmail-mcp@1.2.1"],
       "env": {
         "QQMAIL_USER": "${QQMAIL_USER}",
         "QQMAIL_PASS": "${QQMAIL_PASS}"
@@ -74,7 +74,7 @@ Codex can forward variables from its environment without storing their values in
 ```toml
 [mcp_servers.qqmail]
 command = "npx"
-args = ["-y", "qqmail-readonly-mcp@1.2.1"]
+args = ["-y", "@ethanli666/qqmail-mcp@1.2.1"]
 env_vars = ["QQMAIL_USER", "QQMAIL_PASS"]
 default_tools_approval_mode = "writes"
 ```
@@ -82,7 +82,7 @@ default_tools_approval_mode = "writes"
 Or add it from the CLI after setting the two variables in the environment used to launch Codex:
 
 ```sh
-codex mcp add qqmail -- npx -y qqmail-readonly-mcp@1.2.1
+codex mcp add qqmail -- npx -y @ethanli666/qqmail-mcp@1.2.1
 ```
 
 Restart the client after changing MCP configuration.

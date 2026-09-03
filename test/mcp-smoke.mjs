@@ -15,6 +15,7 @@ const client = new Client({ name: 'qqmail-smoke-test', version: '1.0.0' });
 
 try {
   await client.connect(transport);
+  assert.deepEqual(client.getServerVersion(), { name: 'qqmail-mcp', version: '1.2.1' });
   const result = await client.listTools();
   const names = result.tools.map((tool) => tool.name).sort();
   assert.deepEqual(names, [
@@ -33,6 +34,9 @@ try {
   assert.equal(tools.qqmail_download_attachment.annotations.readOnlyHint, false);
   assert.equal(tools.qqmail_download_attachment.annotations.destructiveHint, false);
   assert.equal(tools.qqmail_download_attachment.annotations.idempotentHint, false);
+  const invalidId = await client.callTool({ name: 'qqmail_get_message', arguments: { id: '0' } });
+  assert.equal(invalidId.isError, true);
+  assert.match(JSON.stringify(invalidId.content), /positive IMAP UID/);
   console.log(`MCP smoke test passed: ${names.join(', ')}`);
 } finally {
   await client.close();
