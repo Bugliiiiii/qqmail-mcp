@@ -15,7 +15,7 @@ const client = new Client({ name: 'qqmail-smoke-test', version: '1.0.0' });
 
 try {
   await client.connect(transport);
-  assert.deepEqual(client.getServerVersion(), { name: 'qqmail-mcp', version: '1.2.1' });
+  assert.deepEqual(client.getServerVersion(), { name: 'qqmail-mcp', version: '1.2.2' });
   const result = await client.listTools();
   const names = result.tools.map((tool) => tool.name).sort();
   assert.deepEqual(names, [

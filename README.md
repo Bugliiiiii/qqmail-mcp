@@ -24,68 +24,73 @@ All tools use standard MCP schemas and tool annotations. The five mailbox-readin
 
 ## Configuration
 
-The server reads configuration from its process environment:
+Fill in your email address and IMAP authorization code directly in your MCP client's configuration, as shown below. You do not need to set system environment variables or run `export`. The client passes the values to the server through its `env` configuration.
 
 | Variable | Required | Default |
 | --- | --- | --- |
-| `QQMAIL_USER` | Yes | — |
-| `QQMAIL_PASS` | Yes | — |
+| `QQMAIL_USER` | Yes | None |
+| `QQMAIL_PASS` | Yes | None |
 | `QQMAIL_FOLDER` | No | `INBOX` |
 | `QQMAIL_IMAP_HOST` | No | `imap.qq.com` |
 | `QQMAIL_IMAP_PORT` | No | `993` |
 | `QQMAIL_IMAP_SECURE` | No | `true` |
 | `QQMAIL_ATTACHMENT_DIR` | No | `<system temp>/qqmail-readonly-mcp-attachments` |
 
-Keep authorization codes in the MCP host's secret store or injected environment. Never commit them to a repository or publish them in MCP configuration examples.
+Direct configuration stores the authorization code in plain text on your computer. Keep the configuration private and restrict file access to your user account. Do not commit it to a repository or share it in screenshots or support requests. For alternatives, see [Advanced: injected credentials](#advanced-injected-credentials).
 
 ## Run with any STDIO MCP client
 
-Configure a local MCP client to run:
-
-```text
-command: npx
-args: -y @ethanli666/qqmail-mcp@1.2.1
-environment: QQMAIL_USER, QQMAIL_PASS
-```
-
-Generic JSON-style client configuration:
+For clients that use a `mcpServers` JSON configuration, copy this example and replace the two placeholder values with your full QQ Mail or Foxmail address and IMAP authorization code. Use the authorization code, not your account login password. If you already have other servers, add only the `qqmail` entry to the existing `mcpServers` object.
 
 ```json
 {
   "mcpServers": {
     "qqmail": {
       "command": "npx",
-      "args": ["-y", "@ethanli666/qqmail-mcp@1.2.1"],
+      "args": ["-y", "@ethanli666/qqmail-mcp@1.2.2"],
       "env": {
-        "QQMAIL_USER": "${QQMAIL_USER}",
-        "QQMAIL_PASS": "${QQMAIL_PASS}"
+        "QQMAIL_USER": "your-address@qq.com",
+        "QQMAIL_PASS": "your-imap-authorization-code"
       }
     }
   }
 }
 ```
 
-Environment-variable interpolation varies by client. If a client does not support it, use that client's credential store or a local launcher that injects the variables.
+Save the configuration and restart the client. Ask the agent to call `qqmail_connection_status` to check the connection before reading messages. Other clients may use a different configuration format; the command, arguments, and credential names stay the same.
 
 ## Codex
 
-Codex can forward variables from its environment without storing their values in `config.toml`:
+Add the following to your local `~/.codex/config.toml` and replace the two placeholder values. If `[mcp_servers.qqmail]` already exists, update that entry instead of adding a duplicate. This follows the [official Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
 
 ```toml
 [mcp_servers.qqmail]
 command = "npx"
-args = ["-y", "@ethanli666/qqmail-mcp@1.2.1"]
+args = ["-y", "@ethanli666/qqmail-mcp@1.2.2"]
+default_tools_approval_mode = "writes"
+
+[mcp_servers.qqmail.env]
+QQMAIL_USER = "your-address@qq.com"
+QQMAIL_PASS = "your-imap-authorization-code"
+```
+
+Save the file and restart Codex, then ask it to call `qqmail_connection_status`.
+
+## Advanced: injected credentials
+
+If you prefer not to store credentials in the MCP configuration, use your client's secret store or a launcher that injects `QQMAIL_USER` and `QQMAIL_PASS` into the server process. Support varies by client. Do not assume that `${VARIABLE}` placeholders are expanded automatically.
+
+For Codex, use this configuration instead of the direct-value example above. Set the two variables in the environment used to launch Codex:
+
+```toml
+[mcp_servers.qqmail]
+command = "npx"
+args = ["-y", "@ethanli666/qqmail-mcp@1.2.2"]
 env_vars = ["QQMAIL_USER", "QQMAIL_PASS"]
 default_tools_approval_mode = "writes"
 ```
 
-Or add it from the CLI after setting the two variables in the environment used to launch Codex:
-
-```sh
-codex mcp add qqmail -- npx -y @ethanli666/qqmail-mcp@1.2.1
-```
-
-Restart the client after changing MCP configuration.
+When switching from direct values, remove the existing `[mcp_servers.qqmail.env]` table and its credential values. Restart Codex from the environment that provides the variables. A `.env` file by itself is not loaded by this server.
 
 ## Install from a local package archive
 

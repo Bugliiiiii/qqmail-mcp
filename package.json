@@ -1,6 +1,6 @@
 {
   "name": "@ethanli666/qqmail-mcp",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "type": "module",
   "description": "Portable read-only QQ Mail MCP server over standard STDIO transport",
   "license": "MIT",
