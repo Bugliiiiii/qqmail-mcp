@@ -2,7 +2,7 @@
 
 English | [简体中文](README.zh-CN.md)
 
-A portable Model Context Protocol server that gives MCP-compatible local agents read-only access to QQ Mail and Foxmail over IMAP. It uses the official STDIO transport and does not depend on Codex-specific APIs.
+A portable Model Context Protocol server that lets MCP-compatible local agents read QQ Mail and Foxmail messages and download attachments over IMAP. It uses the official STDIO transport and does not depend on Codex-specific APIs. The mailbox itself remains read-only.
 
 ## Requirements
 
@@ -36,7 +36,7 @@ Fill in your email address and IMAP authorization code directly in your MCP clie
 | `QQMAIL_IMAP_HOST` | No | `imap.qq.com` |
 | `QQMAIL_IMAP_PORT` | No | `993` |
 | `QQMAIL_IMAP_SECURE` | No | `true` |
-| `QQMAIL_ATTACHMENT_DIR` | No | `<system temp>/qqmail-readonly-mcp-attachments` |
+| `QQMAIL_ATTACHMENT_DIR` | No | `<system temp>/qqmail-mcp-attachments` |
 
 Direct configuration stores the authorization code in plain text on your computer. Keep the configuration private and restrict file access to your user account. Do not commit it to a repository or share it in screenshots or support requests. For alternatives, see [Advanced: injected credentials](#advanced-injected-credentials).
 
@@ -49,7 +49,7 @@ For clients that use a `mcpServers` JSON configuration, copy this example and re
   "mcpServers": {
     "qqmail": {
       "command": "npx",
-      "args": ["-y", "@ethanli666/qqmail-mcp@1.2.2"],
+      "args": ["-y", "@ethanli666/qqmail-mcp"],
       "env": {
         "QQMAIL_USER": "your-address@qq.com",
         "QQMAIL_PASS": "your-imap-authorization-code"
@@ -68,7 +68,7 @@ Add the following to your local `~/.codex/config.toml` and replace the two place
 ```toml
 [mcp_servers.qqmail]
 command = "npx"
-args = ["-y", "@ethanli666/qqmail-mcp@1.2.2"]
+args = ["-y", "@ethanli666/qqmail-mcp"]
 default_tools_approval_mode = "writes"
 
 [mcp_servers.qqmail.env]
@@ -87,7 +87,7 @@ For Codex, use this configuration instead of the direct-value example above. Set
 ```toml
 [mcp_servers.qqmail]
 command = "npx"
-args = ["-y", "@ethanli666/qqmail-mcp@1.2.2"]
+args = ["-y", "@ethanli666/qqmail-mcp"]
 env_vars = ["QQMAIL_USER", "QQMAIL_PASS"]
 default_tools_approval_mode = "writes"
 ```

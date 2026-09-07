@@ -17,7 +17,7 @@ const MAX_LOOKBACK_DAYS = 31;
 const MAX_CANDIDATES = 500;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const ATTACHMENT_ROOT = path.resolve(
-  process.env.QQMAIL_ATTACHMENT_DIR || path.join(os.tmpdir(), 'qqmail-readonly-mcp-attachments')
+  process.env.QQMAIL_ATTACHMENT_DIR || path.join(os.tmpdir(), 'qqmail-mcp-attachments')
 );
 const execFileAsync = promisify(execFile);
 

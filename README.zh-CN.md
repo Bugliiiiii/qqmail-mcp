@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-通过 IMAP 读取 QQ 邮箱和 Foxmail 邮箱的 MCP 服务。采用模型上下文协议（Model Context Protocol，MCP）的标准输入输出（STDIO）传输方式，可供支持该方式的本地智能体客户端使用，不依赖 Codex 专有接口。
+通过 IMAP 读取 QQ 邮箱和 Foxmail 邮箱的邮件与附件，并可将附件下载到本地。采用模型上下文协议（Model Context Protocol，MCP）的标准输入输出（STDIO）传输方式，可供支持该方式的本地智能体客户端使用，不依赖 Codex 专有接口。邮箱本身仍以只读方式打开。
 
 ## 使用前准备
 
@@ -36,7 +36,7 @@
 | `QQMAIL_IMAP_HOST` | 否 | `imap.qq.com` |
 | `QQMAIL_IMAP_PORT` | 否 | `993` |
 | `QQMAIL_IMAP_SECURE` | 否 | `true` |
-| `QQMAIL_ATTACHMENT_DIR` | 否 | 系统临时目录下的 `qqmail-readonly-mcp-attachments` |
+| `QQMAIL_ATTACHMENT_DIR` | 否 | 系统临时目录下的 `qqmail-mcp-attachments` |
 
 直接填写时，授权码会以明文保存在本地配置文件中。请将文件访问权限限制为自己的用户账号，不要提交到代码仓库，也不要通过截图或问题反馈分享。如果不想在配置中保存授权码，可使用下方的[进阶配置](#进阶配置)。
 
@@ -54,7 +54,7 @@
   "mcpServers": {
     "qqmail": {
       "command": "npx",
-      "args": ["-y", "@ethanli666/qqmail-mcp@1.2.2"],
+      "args": ["-y", "@ethanli666/qqmail-mcp"],
       "env": {
         "QQMAIL_USER": "your-address@qq.com",
         "QQMAIL_PASS": "your-imap-authorization-code"
@@ -73,7 +73,7 @@
 ```toml
 [mcp_servers.qqmail]
 command = "npx"
-args = ["-y", "@ethanli666/qqmail-mcp@1.2.2"]
+args = ["-y", "@ethanli666/qqmail-mcp"]
 default_tools_approval_mode = "writes"
 
 [mcp_servers.qqmail.env]
@@ -92,7 +92,7 @@ QQMAIL_PASS = "your-imap-authorization-code"
 ```toml
 [mcp_servers.qqmail]
 command = "npx"
-args = ["-y", "@ethanli666/qqmail-mcp@1.2.2"]
+args = ["-y", "@ethanli666/qqmail-mcp"]
 env_vars = ["QQMAIL_USER", "QQMAIL_PASS"]
 default_tools_approval_mode = "writes"
 ```

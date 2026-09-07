@@ -20,6 +20,14 @@ import {
 
 const execFileAsync = promisify(execFile);
 
+test('README client examples follow the npm latest tag instead of pinning a release', async () => {
+  for (const filename of ['README.md', 'README.zh-CN.md']) {
+    const content = await readFile(new URL(`../${filename}`, import.meta.url), 'utf8');
+    assert.match(content, /@ethanli666\/qqmail-mcp/);
+    assert.doesNotMatch(content, /@ethanli666\/qqmail-mcp@\d+\.\d+\.\d+/);
+  }
+});
+
 test('mailparser preserves UTF-8 body and executable attachment bytes without running them', async () => {
   const script = Buffer.from('#!/bin/sh\necho never-run\n');
   const body = Buffer.from('招聘测评通知');
