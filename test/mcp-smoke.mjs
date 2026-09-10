@@ -45,3 +45,16 @@ test('CLI exits with error when invalid callback port is provided', async () => 
     }
   );
 });
+
+test('CLI executes properly through symlinks (like npx)', async (t) => {
+  const { mkdtemp, rm, symlink } = await import('node:fs/promises');
+  const os = (await import('node:os')).default;
+  const path = (await import('node:path')).default;
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-symlink-'));
+  t.after(() => rm(tmpDir, { recursive: true, force: true }));
+  const linkPath = path.join(tmpDir, 'qqmail-symlink.js');
+  await symlink(path.resolve('bin/qqmail-mcp.js'), linkPath);
+  const { stdout } = await execFileAsync(process.execPath, [linkPath, '--print-config']);
+  const config = JSON.parse(stdout);
+  assert.equal(config.mcpServers['qq-mail'].command, 'npx');
+});
