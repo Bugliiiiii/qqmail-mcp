@@ -1,26 +1,46 @@
 # QQ Mail MCP (@ethanli666/qqmail-mcp)
 
-[中文说明](README.zh-CN.md)
+English | [简体中文](README.zh-CN.md)
 
-A lightweight local adapter and stdio relay connecting MCP clients to Tencent's official QQ Mail Remote MCP service (`https://api.mail.qq.com/mcp`).
-
-Starting with version 2.0, this project completely eliminates legacy IMAP/SMTP password access. Users never store plaintext mailbox passwords or authorization codes locally. All authentication is delegated to Tencent's official OAuth 2.0 web and mobile QR code authorization.
-
-Designed specifically for local MCP clients such as Claude Desktop, Google Antigravity, Cursor, and Codex, with built-in protocol adaptation, candidate fallback rotation, and two-phase write confirmation safety.
+Connect your AI assistant (Claude Desktop, Cursor, Google Antigravity, etc.) safely and seamlessly to Tencent QQ Mail.
 
 ---
 
-## Architecture
+## About the Project
+
+### What is QQ Mail MCP?
+
+Tencent officially operates a Remote MCP service (`https://api.mail.qq.com/mcp`) over Streamable HTTP, offering full agentic capabilities for email composition, searching, and mailbox management.
+
+**`@ethanli666/qqmail-mcp`** is a **transparent protocol adapter and safety relay** designed specifically for local MCP clients. Most desktop MCP clients (such as Claude Desktop, Cursor, Antigravity) communicate via standard I/O (stdio) with local subprocesses, while Tencent cloud enforces strict OAuth client-name admission and specific protocol version requirements.
+
+This project serves as an intelligent bridge between local AI agents and Tencent official servers, resolving protocol negotiation, client admission, and execution safety:
+
+- **Zero Local Passwords**: No IMAP/SMTP passwords or authorization codes are ever required or stored. Authorization is completed securely through official Tencent OAuth 2.0 web and mobile QR code scanning.
+- **Out-of-the-Box Protocol Adaptation**: Built-in bidirectional protocol translation automatically bridges legacy client protocols (`2024-11-05`, `2025-11-25`) with Tencent official `2025-03-26`, preventing version negotiation failures.
+- **Whitelist Candidate Rotation**: Automatically cycles through verified OAuth client identities (`Codex` -> `Claude` -> `WorkBuddy`), saving the working client for instant, zero-delay subsequent boots.
+- **Persistent Silent Credentials**: Once authorized, tokens are stored securely in your local directory (`~/.qqmail-mcp/`, dir mode `0700`, token mode `0600`). Future sessions reuse credentials automatically without re-scanning.
+- **Two-Phase Write Safety**: High-risk write operations (sending, deleting, emptying trash) are intercepted via Tencent official `42801` challenge and presented as an interactive MCP Elicitation card for user confirmation, eliminating agent hallucinations.
+- **Full Tool Surface**: Transparently proxies all 12 official Tencent mail tools, preserving upstream schemas and parameters.
+
+### System Architecture
 
 ![QQ Mail MCP Architecture](docs/assets/architecture.svg)
 
 ---
 
-## Quick Configuration
+## Quick Start
 
-### 1. Local Stdio Clients (Recommended: Claude Desktop, Antigravity, Cursor)
+Get your AI agent managing your QQ Mail inbox in three simple steps.
 
-Add the relay to your client's MCP configuration file (e.g., `claude_desktop_config.json` or `mcp_config.json`):
+### Step 1: Configure Your Client
+
+Add the stdio relay configuration to your MCP client.
+
+#### Claude Desktop
+Configuration path:
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
@@ -33,15 +53,15 @@ Add the relay to your client's MCP configuration file (e.g., `claude_desktop_con
 }
 ```
 
-Or print a generic configuration block using the CLI:
-```bash
-npx -y @ethanli666/qqmail-mcp --print-config
-```
+#### Cursor / Google Antigravity / Other Stdio Clients
+Add the server in your client settings:
+- **Command**: `npx`
+- **Args**: `-y @ethanli666/qqmail-mcp@latest`
 
-### 2. Native Remote OAuth Clients
+> Tip: Run `npx -y @ethanli666/qqmail-mcp --print-config` in your terminal to inspect the standard JSON configuration.
 
-If your host natively supports Streamable HTTP endpoints and browser OAuth flows, connect directly to Tencent's official service:
-
+#### Clients with Native Remote OAuth Support (Optional)
+If your client natively supports Streamable HTTP endpoints and OAuth flow, connect directly to Tencent official servers:
 - **Codex CLI**:
   ```bash
   codex mcp add qqmail --url https://api.mail.qq.com/mcp
@@ -51,34 +71,49 @@ If your host natively supports Streamable HTTP endpoints and browser OAuth flows
   ```bash
   claude mcp add --transport http qq-mail https://api.mail.qq.com/mcp
   ```
-- **WorkBuddy or Connectors**:
-  Reference [`mcp.json`](mcp.json) directly.
+- **WorkBuddy / Connector Manifest**: Reference [`mcp.json`](mcp.json) directly.
 
 ---
 
-## First-Time Setup & QR Code Authorization
+### Step 2: First-Time Authorization & QR Code Scan
 
-Follow these simple steps on your first run. Once authorized, credentials are saved locally for silent subsequent usage.
+After configuration, complete a one-time authorization using Mobile QQ.
 
-### Authorization Workflow
-
-1. **Trigger the Connection**:
-   - Restart your MCP host (such as Claude Desktop), or ask the AI agent a mail-related question (e.g., "List my last 5 emails").
-   - You can also test the login in advance directly in your terminal: `npx -y @ethanli666/qqmail-mcp`.
+1. **Trigger Authorization**:
+   - Run a pre-check directly in your terminal:
+     ```bash
+     npx -y @ethanli666/qqmail-mcp
+     ```
+   - Or start your MCP client (such as Claude Desktop) and ask any mail-related query.
 
 2. **Browser Opens Automatically**:
-   - The relay automatically opens your default web browser to Tencent's official OAuth authorization page (using local callback port `39300` by default).
-   - If the browser does not pop up automatically, copy the URL displayed in the terminal or client logs.
+   - The relay automatically launches your default browser to Tencent official OAuth login page (listening on local callback port `39300` by default).
+   - If the browser does not open automatically, copy and open the link printed in the terminal logs.
 
-3. **Scan QR Code with Mobile QQ**:
-   - The webpage will display "QQ Mail Agent Login Authorization".
-   - Open Mobile QQ on your phone, use the "Scan" feature in the upper-right corner to scan the QR code on screen (or log in via your QQ account on the page).
-   - Check the requested scopes (read aliases, read messages, send messages, delete messages) and tap **Confirm Authorization**.
+3. **Scan with Mobile QQ**:
+   - The page displays "QQ Mail Agent Login Authorization" with a QR code.
+   - Open Mobile QQ, tap the "+" in the top right, select "Scan", and scan the QR code (or log in directly on the page).
+   - Review the requested permissions (read aliases, read messages, send messages, delete messages), then tap **Confirm Authorization**.
 
-4. **Completed & Silently Cached**:
-   - The webpage confirms successful authorization, and you can close the browser tab.
-   - The relay automatically caches the OAuth token under `~/.qqmail-mcp/` (directory permission `0700`, token permission `0600`).
-   - **One-time authorization**: Subsequent client restarts and agent conversations reuse the stored token without requiring you to scan again.
+4. **Authorized and Silently Cached**:
+   - The webpage confirms successful authorization, and you can close the browser.
+   - Credentials are encrypted and saved under `~/.qqmail-mcp/`.
+   - **One-time authorization**: Subsequent sessions reload the cached token automatically with no further QR scans.
+
+---
+
+### Step 3: Start Conversing with Your Agent
+
+With setup complete, talk directly to your agent in your client:
+
+```markdown
+- "Show me my latest 5 unread emails"
+- "Search for notification emails from GitHub this week and summarize them"
+- "Download the Excel attachment from the latest financial report email"
+- "Draft a reply to Alice (alice@example.com) confirming tomorrow's 2 PM meeting"
+```
+
+When the agent attempts to reply, send, or delete messages, an interactive confirmation dialog will prompt you to verify the operation before execution.
 
 ---
 
@@ -88,7 +123,7 @@ Tencent official service exposes 12 mailbox management tools:
 
 | Tool | Type | Description |
 | --- | --- | --- |
-| `GetMe` | Read | Retrieves authorized mailbox aliases, active scopes, limits, and attachment size rules |
+| `GetMe` | Read | Retrieves authorized mailbox aliases, active scopes, limits, and attachment size rules (recommended first call) |
 | `ListMessages` | Read | Lists and filters messages in inbox, sent, drafts, trash, or spam |
 | `GetMessage` | Read | Retrieves full message body (HTML and plain text) with metadata |
 | `SearchMessages` | Read | Searches messages by keyword, sender, recipient, date, or folder |
@@ -101,7 +136,7 @@ Tencent official service exposes 12 mailbox management tools:
 | `PermanentDeleteMessage` | Write | Permanently deletes a message with no recovery (requires user confirmation) |
 | `ClearTrash` | Write | Clears all messages in the trash folder (requires user confirmation) |
 
-> Tool definitions, arguments, and schemas are returned dynamically by Tencent at runtime. This package does not alter or re-implement any tool.
+> Note: All tool schemas, arguments, and validations are served dynamically by Tencent at runtime. This package does not modify any tool interface.
 
 ---
 
@@ -119,6 +154,8 @@ To prevent accidental actions or hallucinations by AI agents, Tencent enforces a
 ---
 
 ## Environment Variables
+
+Default settings work for almost all environments. Advanced configurations are available:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -139,8 +176,13 @@ Version 1.x relied on `QQMAIL_USER`, `QQMAIL_PASS`, and direct IMAP connections.
 ## Development
 
 ```bash
+# Install dependencies
 npm install
+
+# Run checks and tests
 npm test
+
+# Verify npm packaging
 npm pack --dry-run
 ```
 
