@@ -6,12 +6,15 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
 import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import {
+  assertNoV1Environment,
   buildClientCandidates,
   buildRemoteArgs,
   buildStdioConfig,
   getClientCredentialDir,
-  prepareCredentialDir
+  prepareCredentialDir,
+  resolveCallbackPort
 } from '../src/config.js';
 import {
   buildConfirmationElicitation,
@@ -19,7 +22,8 @@ import {
   hasElicitationCapability,
   isConfirmedElicitationResponse,
   isSecondPhaseWriteCall,
-  isWriteTool
+  isWriteTool,
+  negotiateProtocolVersion
 } from '../src/relay-policy.js';
 
 const HELP = `qqmail-mcp 2.x
@@ -33,6 +37,7 @@ Usage:
 
 Environment:
   QQMAIL_OAUTH_CLIENT_NAME   Force Codex, Claude, or WorkBuddy
+  QQMAIL_OAUTH_CALLBACK_PORT Fixed local callback port for OAuth redirect
   MCP_REMOTE_CONFIG_DIR      Override the local OAuth state directory
 
 Without an explicit name, the relay tries Codex, Claude, then WorkBuddy and
@@ -86,10 +91,31 @@ function writeError(id, message) {
   writeProtocol({ jsonrpc: '2.0', id, error: { code: -32001, message } });
 }
 
-function runRelay() {
-  const stateRoot = prepareCredentialDir();
+export function runRelay({
+  stdin = process.stdin,
+  stdout = process.stdout,
+  stderr = process.stderr,
+  spawnFn = spawn,
+  env = process.env,
+  stateRoot = prepareCredentialDir(env.MCP_REMOTE_CONFIG_DIR),
+  onExitCode = (code) => {
+    process.exitCode = code;
+  },
+  handleSignals = true
+} = {}) {
+  assertNoV1Environment(env);
+  const callbackPort = resolveCallbackPort(env.QQMAIL_OAUTH_CALLBACK_PORT);
+
+  function writeProtocol(message) {
+    stdout.write(`${typeof message === 'string' ? message : JSON.stringify(message)}\n`);
+  }
+
+  function writeError(id, message) {
+    writeProtocol({ jsonrpc: '2.0', id, error: { code: -32001, message } });
+  }
+
   const cachePath = path.join(stateRoot, 'selected-client.json');
-  const explicitName = process.env.QQMAIL_OAUTH_CLIENT_NAME;
+  const explicitName = env.QQMAIL_OAUTH_CLIENT_NAME;
   const cachedName = explicitName ? undefined : readCachedClient(cachePath);
   const candidates = buildClientCandidates({ explicitName, cachedName });
   const inputBuffer = [];
@@ -102,26 +128,27 @@ function runRelay() {
   let child;
   let candidateIndex = 0;
   let initialized = false;
+  let receivedInitializeResponse = false;
 
   function forwardToChild(line) {
-    if (child?.stdin.writable) child.stdin.write(`${line}\n`);
+    if (child?.stdin?.writable) child.stdin.write(`${line}\n`);
   }
 
   function startNextCandidate() {
     if (candidateIndex >= candidates.length) {
-      process.stderr.write('QQ Mail OAuth registration failed for every allowed client name.\n');
-      process.exitCode = 1;
+      stderr.write('QQ Mail OAuth registration failed for every allowed client name.\n');
+      onExitCode(1);
       return;
     }
 
     const clientName = candidates[candidateIndex++];
     const credentialDir = getClientCredentialDir(stateRoot, clientName);
-    process.stderr.write(`QQ Mail local relay: trying OAuth client name "${clientName}".\n`);
-    const attempt = spawn(
+    stderr.write(`QQ Mail local relay: trying OAuth client name "${clientName}".\n`);
+    const attempt = spawnFn(
       process.execPath,
-      [resolveMcpRemoteBin(), ...buildRemoteArgs({ clientName })],
+      [resolveMcpRemoteBin(), ...buildRemoteArgs({ clientName, callbackPort })],
       {
-        env: { ...process.env, MCP_REMOTE_CONFIG_DIR: credentialDir },
+        env: { ...env, MCP_REMOTE_CONFIG_DIR: credentialDir },
         stdio: ['pipe', 'pipe', 'inherit']
       }
     );
@@ -135,9 +162,10 @@ function runRelay() {
       const message = parseMessage(line);
       if (!initialized) {
         if (message?.id === initializeId && message?.result?.serverInfo) {
+          receivedInitializeResponse = true;
           initialized = true;
           cacheClient(cachePath, clientName);
-          process.stderr.write(`QQ Mail local relay: using OAuth client name "${clientName}".\n`);
+          stderr.write(`QQ Mail local relay: using OAuth client name "${clientName}".\n`);
           for (const bufferedLine of preInitializationOutput) writeProtocol(bufferedLine);
           writeProtocol(line);
           inputBuffer.length = 0;
@@ -145,6 +173,10 @@ function runRelay() {
           return;
         }
         if (message?.id === initializeId && message?.error) {
+          receivedInitializeResponse = true;
+          const errMsg = message.error.message || JSON.stringify(message.error);
+          stderr.write(`QQ Mail remote MCP initialization error: ${errMsg}\n`);
+          writeProtocol(line);
           attempt.kill('SIGTERM');
           return;
         }
@@ -168,19 +200,23 @@ function runRelay() {
     });
 
     attempt.once('error', (error) => {
-      process.stderr.write(`Failed to start mcp-remote: ${error.message}\n`);
+      stderr.write(`Failed to start mcp-remote: ${error.message}\n`);
     });
     attempt.once('exit', (code, signal) => {
       output.close();
       if (!initialized) {
-        startNextCandidate();
+        if (!receivedInitializeResponse) {
+          startNextCandidate();
+          return;
+        }
+        onExitCode(signal ? 1 : (code ?? 1));
         return;
       }
-      process.exitCode = signal ? 1 : (code ?? 1);
+      onExitCode(signal ? 1 : (code ?? 1));
     });
   }
 
-  const input = readline.createInterface({ input: process.stdin });
+  const input = readline.createInterface({ input: stdin });
   input.on('line', (line) => {
     const message = parseMessage(line);
     if (!message) {
@@ -191,6 +227,23 @@ function runRelay() {
     if (message.method === 'initialize') {
       initializeId = message.id;
       clientCapabilities = message.params?.capabilities ?? {};
+
+      const requestedVersion = message.params?.protocolVersion;
+      try {
+        const negotiatedVersion = negotiateProtocolVersion(requestedVersion);
+        if (negotiatedVersion !== requestedVersion) {
+          message.params.protocolVersion = negotiatedVersion;
+          line = JSON.stringify(message);
+        }
+      } catch (err) {
+        writeProtocol({
+          jsonrpc: '2.0',
+          id: message.id,
+          error: { code: -32602, message: err.message }
+        });
+        stderr.write(`QQ Mail local relay: initialization rejected - ${err.message}\n`);
+        return;
+      }
     }
 
     const pending = pendingElicitations.get(message.id);
@@ -244,28 +297,38 @@ function runRelay() {
     if (!initialized) inputBuffer.push(line);
     forwardToChild(line);
   });
-  input.once('close', () => child?.stdin.end());
+  input.once('close', () => child?.stdin?.end());
 
-  for (const signal of ['SIGINT', 'SIGTERM']) {
-    process.on(signal, () => child?.kill(signal));
+  if (handleSignals) {
+    for (const signal of ['SIGINT', 'SIGTERM']) {
+      process.on(signal, () => child?.kill(signal));
+    }
   }
 
   startNextCandidate();
 }
 
-const [command] = process.argv.slice(2);
-if (command === '--help' || command === '-h') {
-  process.stdout.write(HELP);
-} else if (command === '--print-config') {
-  process.stdout.write(`${JSON.stringify(buildStdioConfig(), null, 2)}\n`);
-} else if (command) {
-  process.stderr.write(`Unknown option: ${command}\n\n${HELP}`);
-  process.exitCode = 2;
-} else {
-  try {
-    runRelay();
-  } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : error}\n`);
-    process.exitCode = 1;
+const isDirectRun =
+  Boolean(process.argv[1]) &&
+  fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+
+if (isDirectRun) {
+  const [command] = process.argv.slice(2);
+  if (command === '--help' || command === '-h') {
+    process.stdout.write(HELP);
+  } else if (command === '--print-config') {
+    process.stdout.write(`${JSON.stringify(buildStdioConfig(), null, 2)}\n`);
+  } else if (command) {
+    process.stderr.write(`Unknown option: ${command}\n\n${HELP}`);
+    process.exitCode = 2;
+  } else {
+    try {
+      assertNoV1Environment(process.env);
+      resolveCallbackPort(process.env.QQMAIL_OAUTH_CALLBACK_PORT);
+      runRelay();
+    } catch (error) {
+      process.stderr.write(`${error instanceof Error ? error.message : error}\n`);
+      process.exitCode = 1;
+    }
   }
 }

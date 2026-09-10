@@ -11,6 +11,8 @@
     "SendMessage",
     "ReplyMessage",
     "ForwardMessage",
-    "DeleteMessage"
+    "DeleteMessage",
+    "PermanentDeleteMessage",
+    "ClearTrash"
   ]
 }

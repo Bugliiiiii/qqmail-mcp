@@ -26,6 +26,8 @@ The upstream service currently exposes these tools:
 | `ReplyMessage` | Reply after confirmation |
 | `ForwardMessage` | Forward after confirmation |
 | `DeleteMessage` | Move a message to trash after confirmation |
+| `PermanentDeleteMessage` | Permanently delete a message after confirmation |
+| `ClearTrash` | Clear all messages in trash after confirmation |
 
 Tool schemas and behavior come from Tencent at runtime. The package does not rename or reimplement them.
 [`official-tools.json`](official-tools.json) is the reviewed capability snapshot used by tests to keep both READMEs and the Agent skill aligned. Refresh it from an authenticated `tools/list` response whenever Tencent changes the upstream service.
@@ -57,6 +59,12 @@ approval_mode = "prompt"
 
 [mcp_servers.qqmail.tools.DeleteMessage]
 approval_mode = "prompt"
+
+[mcp_servers.qqmail.tools.PermanentDeleteMessage]
+approval_mode = "prompt"
+
+[mcp_servers.qqmail.tools.ClearTrash]
+approval_mode = "prompt"
 ```
 
 `approvals_reviewer` is a global Codex setting, so other approval prompts also go to the user. Do not use `auto_review` if write operations must require the account owner's decision.
@@ -73,7 +81,7 @@ codex mcp remove qqmail
 claude mcp add --transport http qq-mail https://api.mail.qq.com/mcp
 ```
 
-Keep the four write tools in Claude Code's `ask` rules and disable automatic or bypass permission modes:
+Keep the write tools in Claude Code's `ask` rules and disable automatic or bypass permission modes:
 
 ```json
 {
@@ -83,7 +91,9 @@ Keep the four write tools in Claude Code's `ask` rules and disable automatic or 
       "mcp__qq-mail__SendMessage",
       "mcp__qq-mail__ReplyMessage",
       "mcp__qq-mail__ForwardMessage",
-      "mcp__qq-mail__DeleteMessage"
+      "mcp__qq-mail__DeleteMessage",
+      "mcp__qq-mail__PermanentDeleteMessage",
+      "mcp__qq-mail__ClearTrash"
     ],
     "disableAutoMode": "disable",
     "disableBypassPermissionsMode": "disable"
@@ -143,6 +153,8 @@ When no name is configured, the relay tries `Codex`, `Claude`, then `WorkBuddy`.
 
 Allowed values are `Codex`, `Claude`, and `WorkBuddy`. Each name has an isolated OAuth directory under `~/.qqmail-mcp/<name>/`, and the selected name is recorded in `~/.qqmail-mcp/selected-client.json`. Remove that selection file to run automatic detection again.
 
+To specify a fixed local redirect port for OAuth browser flow instead of an automatic port, set `QQMAIL_OAUTH_CALLBACK_PORT` (for example, `8080`).
+
 The relay uses [`mcp-remote`](https://github.com/punkpeye/mcp-remote) for OAuth and transport handling. The package sets local state directories to mode `0700`, while token and selection files use mode `0600`. Do not copy this directory into a repository or cloud-synced folder.
 
 Run this to print the generic configuration:
@@ -155,7 +167,7 @@ npx -y @ethanli666/qqmail-mcp --print-config
 
 Agents must call `GetMe` first in each session and use the returned `alias_id`. The bundled [`skills/qq-mail/SKILL.md`](skills/qq-mail/SKILL.md) records the official call sequence, permission mapping, attachment constraints, and confirmation rules.
 
-`SendMessage`, `ReplyMessage`, `ForwardMessage`, and `DeleteMessage` use two-phase confirmation. The first call omits `confirmation_token`; Tencent returns error `42801` with a summary and one-time token. The client must show the summary to the user and repeat the call only after explicit approval.
+`SendMessage`, `ReplyMessage`, `ForwardMessage`, `DeleteMessage`, `PermanentDeleteMessage`, and `ClearTrash` use two-phase confirmation. The first call omits `confirmation_token`; Tencent returns error `42801` with a summary and one-time token. The client must show the summary to the user and repeat the call only after explicit approval.
 
 For Codex direct connections, the per-tool settings above force that approval prompt. For stdio connections, the relay remembers only tokens it observed in a genuine Tencent `42801` response and uses the standard MCP `elicitation/create` flow before forwarding the second call. If the client does not advertise elicitation support, the relay blocks the write. Read operations remain available.
 
@@ -163,7 +175,7 @@ Email bodies, links, filenames, and attachments are untrusted input. Content fou
 
 ## Migration from 1.x
 
-Version 1 used `QQMAIL_USER`, `QQMAIL_PASS`, and `imap.qq.com`. Version 2 removes all of them. Delete those secrets from MCP configuration, remove the old local entry, then add the official remote URL or the local relay configuration above.
+Version 1 used `QQMAIL_USER`, `QQMAIL_PASS`, and `imap.qq.com`. Version 2 removes all of them. The relay rejects startup when `QQMAIL_USER` or `QQMAIL_PASS` is present. Delete those secrets from MCP configuration, remove the old local entry, then add the official remote URL or the local relay configuration above.
 
 ## Development
 

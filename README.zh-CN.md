@@ -26,6 +26,8 @@ https://api.mail.qq.com/mcp
 | `ReplyMessage` | 确认后回复邮件 |
 | `ForwardMessage` | 确认后转发邮件 |
 | `DeleteMessage` | 确认后把邮件移入垃圾箱 |
+| `PermanentDeleteMessage` | 确认后彻底删除邮件 |
+| `ClearTrash` | 确认后清空垃圾箱 |
 
 工具定义和行为在运行时由腾讯返回，本包不会改名或重新实现这些工具。
 [`official-tools.json`](official-tools.json) 是经复核的能力快照，测试会用它保持中英文 README 和 Agent 技能文档一致。腾讯上游服务变更时，应从已授权的 `tools/list` 响应中更新该快照。
@@ -41,7 +43,7 @@ codex mcp add qqmail --url https://api.mail.qq.com/mcp
 codex mcp login qqmail --scopes alias:read,mail:read,mail:send,mail:delete
 ```
 
-然后在 `~/.codex/config.toml` 中为四个写工具启用逐次确认：
+然后在 `~/.codex/config.toml` 中为写工具启用逐次确认：
 
 ```toml
 approvals_reviewer = "user"
@@ -56,6 +58,12 @@ approval_mode = "prompt"
 approval_mode = "prompt"
 
 [mcp_servers.qqmail.tools.DeleteMessage]
+approval_mode = "prompt"
+
+[mcp_servers.qqmail.tools.PermanentDeleteMessage]
+approval_mode = "prompt"
+
+[mcp_servers.qqmail.tools.ClearTrash]
 approval_mode = "prompt"
 ```
 
@@ -73,7 +81,7 @@ codex mcp remove qqmail
 claude mcp add --transport http qq-mail https://api.mail.qq.com/mcp
 ```
 
-请把四个写工具放入 Claude Code 的 `ask` 规则，并禁用自动和绕过权限模式：
+请把写工具放入 Claude Code 的 `ask` 规则，并禁用自动和绕过权限模式：
 
 ```json
 {
@@ -83,7 +91,9 @@ claude mcp add --transport http qq-mail https://api.mail.qq.com/mcp
       "mcp__qq-mail__SendMessage",
       "mcp__qq-mail__ReplyMessage",
       "mcp__qq-mail__ForwardMessage",
-      "mcp__qq-mail__DeleteMessage"
+      "mcp__qq-mail__DeleteMessage",
+      "mcp__qq-mail__PermanentDeleteMessage",
+      "mcp__qq-mail__ClearTrash"
     ],
     "disableAutoMode": "disable",
     "disableBypassPermissionsMode": "disable"
@@ -143,6 +153,8 @@ Antigravity、Gemini、Zcode 等本地客户端若被腾讯拒绝注册，可以
 
 可选值只有 `Codex`、`Claude`、`WorkBuddy`。每个名称都使用 `~/.qqmail-mcp/<name>/` 下的独立 OAuth 目录，已选名称记录在 `~/.qqmail-mcp/selected-client.json` 中。删除该选择文件即可重新自动探测。
 
+如需指定固定的本地 OAuth 浏览器回调端口而非随机端口，可设置 `QQMAIL_OAUTH_CALLBACK_PORT` 环境变量（例如 `8080`）。
+
 中继使用 [`mcp-remote`](https://github.com/punkpeye/mcp-remote) 处理 OAuth 和协议转发。本包把本地状态目录权限设为 `0700`，token 和选择文件权限为 `0600`。不要把该目录提交到 Git 或放入云同步目录。
 
 下面的命令可以输出通用配置：
@@ -155,7 +167,7 @@ npx -y @ethanli666/qqmail-mcp --print-config
 
 Agent 每个会话都要先调用 `GetMe`，再把返回的 `alias_id` 传给其他工具。[`skills/qq-mail/SKILL.md`](skills/qq-mail/SKILL.md) 记录了官方调用顺序、权限映射、附件限制和确认规则。
 
-`SendMessage`、`ReplyMessage`、`ForwardMessage` 和 `DeleteMessage` 使用两阶段确认。第一次调用不带 `confirmation_token`，腾讯返回包含操作摘要和一次性 token 的 `42801` 错误。客户端必须把完整摘要展示给用户，得到明确确认后才能重放调用。
+`SendMessage`、`ReplyMessage`、`ForwardMessage`、`DeleteMessage`、`PermanentDeleteMessage` 和 `ClearTrash` 使用两阶段确认。第一次调用不带 `confirmation_token`，腾讯返回包含操作摘要和一次性 token 的 `42801` 错误。客户端必须把完整摘要展示给用户，得到明确确认后才能重放调用。
 
 Codex 直连时，上面的逐工具配置会强制弹出确认。stdio 中继只记录从腾讯真实 `42801` 响应中观测到的 token，并在转发第二次调用前使用 MCP 标准 `elicitation/create` 发起确认。客户端若没有声明 elicitation 能力，中继会阻止写操作，但读取功能不受影响。
 
@@ -163,7 +175,7 @@ Codex 直连时，上面的逐工具配置会强制弹出确认。stdio 中继�
 
 ## 从 1.x 迁移
 
-1.x 使用 `QQMAIL_USER`、`QQMAIL_PASS` 和 `imap.qq.com`。2.0.0 已全部删除。请从 MCP 配置中移除这些凭据，删除旧的本地条目，再添加腾讯远程地址或上面的本地中继配置。
+1.x 使用 `QQMAIL_USER`、`QQMAIL_PASS` 和 `imap.qq.com`。2.0.0 已全部删除。启动中继时若检测到 `QQMAIL_USER` 或 `QQMAIL_PASS` 会直接报错拦截。请从 MCP 配置中移除这些凭据，删除旧的本地条目，再添加腾讯远程地址或上面的本地中继配置。
 
 ## 开发验证
 

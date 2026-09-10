@@ -2,8 +2,22 @@ const WRITE_TOOLS = new Set([
   'SendMessage',
   'ReplyMessage',
   'ForwardMessage',
-  'DeleteMessage'
+  'DeleteMessage',
+  'PermanentDeleteMessage',
+  'ClearTrash'
 ]);
+
+export const TARGET_PROTOCOL_VERSION = '2025-03-26';
+export const SUPPORTED_PROTOCOL_VERSIONS = Object.freeze(['2025-03-26', '2024-11-05']);
+
+export function negotiateProtocolVersion(version) {
+  if (version === '2025-03-26' || version === '2024-11-05') {
+    return TARGET_PROTOCOL_VERSION;
+  }
+  throw new Error(
+    `Unsupported protocol version "${version}". Supported versions are: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')}`
+  );
+}
 
 export function isWriteTool(name) {
   return WRITE_TOOLS.has(name);

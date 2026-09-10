@@ -16,7 +16,7 @@ Permission mapping:
 - `alias:read`: `GetMe`
 - `mail:read`: `ListMessages`, `GetMessage`, `SearchMessages`, `ListAttachments`, `DownloadAttachment`
 - `mail:send`: `SendMessage`, `ReplyMessage`, `ForwardMessage`
-- `mail:delete`: `DeleteMessage`
+- `mail:delete`: `DeleteMessage`, `PermanentDeleteMessage`, `ClearTrash`
 
 ## Official tools
 
@@ -70,9 +70,17 @@ Optional: `cc`, `bcc`, `body`, `body_format`, `include_attachments`, additional 
 
 Required: `alias_id`, `message_id`. Optional: `confirmation_token`. This moves the message to trash; the service currently retains trashed messages for 30 days.
 
+### PermanentDeleteMessage
+
+Required: `alias_id`, `message_id`. Optional: `confirmation_token`. Permanently deletes the message. This action cannot be undone.
+
+### ClearTrash
+
+Required: `alias_id`. Optional: `confirmation_token`. Permanently deletes all messages in the trash folder. This action cannot be undone.
+
 ## Confirmation for writes
 
-`SendMessage`, `ReplyMessage`, `ForwardMessage`, and `DeleteMessage` require two phases.
+`SendMessage`, `ReplyMessage`, `ForwardMessage`, `DeleteMessage`, `PermanentDeleteMessage`, and `ClearTrash` require two phases.
 
 1. Call the tool without `confirmation_token`.
 2. Expect HTTP 428 or business error `42801`, containing a one-time `confirmation_token`, expiry, and `operation_summary`.

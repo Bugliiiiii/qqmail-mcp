@@ -9,18 +9,23 @@ import {
   FULL_SCOPE,
   OFFICIAL_MCP_URL,
   SUPPORTED_FALLBACK_NAMES,
+  assertNoV1Environment,
   buildClientCandidates,
   buildRemoteArgs,
   getClientCredentialDir,
   prepareCredentialDir,
+  resolveCallbackPort,
   resolveClientName
 } from '../src/config.js';
 import {
+  TARGET_PROTOCOL_VERSION,
   buildConfirmationElicitation,
   findConfirmationChallenge,
   hasElicitationCapability,
   isConfirmedElicitationResponse,
-  isSecondPhaseWriteCall
+  isSecondPhaseWriteCall,
+  isWriteTool,
+  negotiateProtocolVersion
 } from '../src/relay-policy.js';
 
 test('uses the official QQ Mail remote MCP endpoint and complete scope set', () => {
@@ -165,4 +170,83 @@ test('write-token replay requires an MCP elicitation confirmation', () => {
     isConfirmedElicitationResponse({ id: 'confirm-1', result: { action: 'decline' } }),
     false
   );
+});
+
+test('destructive write tools include PermanentDeleteMessage and ClearTrash', () => {
+  assert.equal(isWriteTool('PermanentDeleteMessage'), true);
+  assert.equal(isWriteTool('ClearTrash'), true);
+  assert.equal(isWriteTool('SendMessage'), true);
+  assert.equal(isWriteTool('DeleteMessage'), true);
+  assert.equal(isWriteTool('ListMessages'), false);
+
+  const deletePermanentCall = {
+    jsonrpc: '2.0',
+    id: 8,
+    method: 'tools/call',
+    params: {
+      name: 'PermanentDeleteMessage',
+      arguments: { message_id: 'm1', confirmation_token: 'token-del' }
+    }
+  };
+  assert.equal(isSecondPhaseWriteCall(deletePermanentCall), true);
+
+  const clearTrashCall = {
+    jsonrpc: '2.0',
+    id: 9,
+    method: 'tools/call',
+    params: {
+      name: 'ClearTrash',
+      arguments: { confirmation_token: 'token-clear' }
+    }
+  };
+  assert.equal(isSecondPhaseWriteCall(clearTrashCall), true);
+});
+
+test('validates and resolves OAuth callback port', () => {
+  assert.equal(resolveCallbackPort(undefined), undefined);
+  assert.equal(resolveCallbackPort(''), undefined);
+  assert.equal(resolveCallbackPort('8080'), 8080);
+  assert.equal(resolveCallbackPort(3000), 3000);
+  assert.equal(resolveCallbackPort('1'), 1);
+  assert.equal(resolveCallbackPort('65535'), 65535);
+
+  assert.throws(() => resolveCallbackPort('0'), /valid port number/);
+  assert.throws(() => resolveCallbackPort('65536'), /valid port number/);
+  assert.throws(() => resolveCallbackPort('-1'), /valid port number/);
+  assert.throws(() => resolveCallbackPort('not-a-port'), /valid port number/);
+  assert.throws(() => resolveCallbackPort('80.5'), /valid port number/);
+
+  const argsWithPort = buildRemoteArgs({ clientName: 'Codex', callbackPort: 8080 });
+  assert.equal(argsWithPort[0], OFFICIAL_MCP_URL);
+  assert.equal(argsWithPort[1], '8080');
+  assert.equal(argsWithPort[2], '--transport');
+
+  const argsWithoutPort = buildRemoteArgs({ clientName: 'Codex' });
+  assert.equal(argsWithoutPort[0], OFFICIAL_MCP_URL);
+  assert.equal(argsWithoutPort[1], '--transport');
+});
+
+test('rejects v1 plain-text credentials and guides users to OAuth', () => {
+  assert.doesNotThrow(() => assertNoV1Environment({}));
+  assert.throws(
+    () => assertNoV1Environment({ QQMAIL_USER: 'user@qq.com' }),
+    /QQ Mail MCP v2 uses Tencent official OAuth.*QQMAIL_USER/
+  );
+  assert.throws(
+    () => assertNoV1Environment({ QQMAIL_PASS: 'auth-code' }),
+    /QQ Mail MCP v2 uses Tencent official OAuth.*QQMAIL_PASS/
+  );
+  assert.throws(
+    () => assertNoV1Environment({ QQMAIL_USER: 'user@qq.com', QQMAIL_PASS: 'auth-code' }),
+    /QQ Mail MCP v2 uses Tencent official OAuth/
+  );
+});
+
+test('negotiates protocol version: adapts 2024-11-05 to 2025-03-26 and fails on unknown versions', () => {
+  assert.equal(TARGET_PROTOCOL_VERSION, '2025-03-26');
+  assert.equal(negotiateProtocolVersion('2025-03-26'), '2025-03-26');
+  assert.equal(negotiateProtocolVersion('2024-11-05'), '2025-03-26');
+  assert.throws(() => negotiateProtocolVersion('2023-01-01'), /Unsupported protocol version/);
+  assert.throws(() => negotiateProtocolVersion(''), /Unsupported protocol version/);
+  assert.throws(() => negotiateProtocolVersion(undefined), /Unsupported protocol version/);
 });
