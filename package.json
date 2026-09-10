@@ -1,6 +1,6 @@
 {
   "name": "@ethanli666/qqmail-mcp",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "type": "module",
   "description": "Connect MCP clients to Tencent's official QQ Mail MCP service",
   "license": "MIT",
