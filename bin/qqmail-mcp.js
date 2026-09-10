@@ -1,30 +1,20 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process';
-import { chmodSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import {
   assertNoV1Environment,
-  buildClientCandidates,
-  buildRemoteArgs,
   buildStdioConfig,
-  getClientCredentialDir,
   prepareCredentialDir,
   resolveCallbackPort
 } from '../src/config.js';
-import {
-  buildConfirmationElicitation,
-  findConfirmationChallenge,
-  hasElicitationCapability,
-  isConfirmedElicitationResponse,
-  isSecondPhaseWriteCall,
-  isWriteTool,
-  negotiateProtocolVersion
-} from '../src/relay-policy.js';
+import { createProtocolAdapter } from '../src/protocol-adapter.js';
+import { createUpstreamSupervisor } from '../src/upstream-supervisor.js';
+import { createWriteConfirmation } from '../src/write-confirmation.js';
 
 const HELP = `qqmail-mcp 2.x
 
@@ -47,48 +37,12 @@ Clients with native remote OAuth support should connect directly to:
   https://api.mail.qq.com/mcp
 `;
 
-function resolveMcpRemoteBin() {
-  const require = createRequire(import.meta.url);
-  const packagePath = require.resolve('mcp-remote/package.json');
-  const packageJson = require(packagePath);
-  const relativeBin =
-    typeof packageJson.bin === 'string' ? packageJson.bin : packageJson.bin?.['mcp-remote'];
-  if (!relativeBin) throw new Error('The installed mcp-remote package has no mcp-remote binary');
-  return path.resolve(path.dirname(packagePath), relativeBin);
-}
-
-function readCachedClient(cachePath) {
-  try {
-    const parsed = JSON.parse(readFileSync(cachePath, 'utf8'));
-    return typeof parsed.clientName === 'string' ? parsed.clientName : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function cacheClient(cachePath, clientName) {
-  writeFileSync(
-    cachePath,
-    `${JSON.stringify({ clientName, cachedAt: new Date().toISOString() }, null, 2)}\n`,
-    { mode: 0o600 }
-  );
-  chmodSync(cachePath, 0o600);
-}
-
 function parseMessage(line) {
   try {
     return JSON.parse(line);
   } catch {
     return null;
   }
-}
-
-function writeProtocol(message) {
-  process.stdout.write(`${typeof message === 'string' ? message : JSON.stringify(message)}\n`);
-}
-
-function writeError(id, message) {
-  writeProtocol({ jsonrpc: '2.0', id, error: { code: -32001, message } });
 }
 
 export function runRelay({
@@ -114,139 +68,64 @@ export function runRelay({
     writeProtocol({ jsonrpc: '2.0', id, error: { code: -32001, message } });
   }
 
-  const cachePath = path.join(stateRoot, 'selected-client.json');
-  const explicitName = env.QQMAIL_OAUTH_CLIENT_NAME;
-  const cachedName = explicitName ? undefined : readCachedClient(cachePath);
-  const candidates = buildClientCandidates({ explicitName, cachedName });
-  const inputBuffer = [];
+  const protocolAdapter = createProtocolAdapter();
+  const writeConfirmation = createWriteConfirmation({ pid: process.pid });
   const preInitializationOutput = [];
-  const firstPhaseIds = new Map();
-  const challenges = new Map();
-  const pendingElicitations = new Map();
-  let clientCapabilities = {};
-  let initializeId;
-  let child;
-  let candidateIndex = 0;
-  let initialized = false;
-  let receivedInitializeResponse = false;
-  let clientRequestedProtocolVersion;
+  let started = false;
   let input;
 
-  function terminate(code) {
-    input?.close();
-    onExitCode(code);
-  }
-
-  function forwardToChild(line) {
-    if (child?.stdin?.writable) child.stdin.write(`${line}\n`);
-  }
-
-  function startNextCandidate() {
-    if (candidateIndex >= candidates.length) {
-      stderr.write('QQ Mail OAuth registration failed for every allowed client name.\n');
-      if (!initialized && initializeId !== undefined) {
-        writeError(initializeId, 'QQ Mail OAuth registration failed for every allowed client name');
+  const supervisor = createUpstreamSupervisor({
+    stateRoot,
+    env,
+    callbackPort,
+    explicitName: env.QQMAIL_OAUTH_CLIENT_NAME,
+    spawnFn,
+    onStderr: (chunk) => stderr.write(chunk),
+    onPortConflict: (portMsg) => {
+      if (!supervisor.initialized && protocolAdapter.initializeId !== null) {
+        writeError(protocolAdapter.initializeId, `QQ Mail local relay: ${portMsg} is already in use.`);
       }
-      terminate(1);
-      return;
-    }
-
-    const clientName = candidates[candidateIndex++];
-    const credentialDir = getClientCredentialDir(stateRoot, clientName);
-    stderr.write(`QQ Mail local relay: trying OAuth client name "${clientName}".\n`);
-    let isPortConflict = false;
-    const attempt = spawnFn(
-      process.execPath,
-      [resolveMcpRemoteBin(), ...buildRemoteArgs({ clientName, callbackPort })],
-      {
-        env: { ...env, MCP_REMOTE_CONFIG_DIR: credentialDir },
-        stdio: ['pipe', 'pipe', 'pipe']
+    },
+    onAllCandidatesFailed: () => {
+      if (!supervisor.initialized && protocolAdapter.initializeId !== null) {
+        writeError(
+          protocolAdapter.initializeId,
+          'QQ Mail OAuth registration failed for every allowed client name'
+        );
       }
-    );
-    child = attempt;
-    preInitializationOutput.length = 0;
-
-    attempt.stderr?.on('data', (chunk) => {
-      stderr.write(chunk);
-      const text = chunk.toString();
-      if (text.includes('EADDRINUSE') || text.includes('address already in use')) {
-        isPortConflict = true;
-      }
-    });
-
-    for (const line of inputBuffer) forwardToChild(line);
-
-    const output = readline.createInterface({ input: attempt.stdout });
-    output.on('line', (line) => {
+    },
+    onExit: (code) => {
+      input?.close();
+      onExitCode(code);
+    },
+    onLine: (line) => {
       const message = parseMessage(line);
-      if (!initialized) {
-        if (message?.id === initializeId && message?.result?.serverInfo) {
-          receivedInitializeResponse = true;
-          initialized = true;
-          cacheClient(cachePath, clientName);
-          stderr.write(`QQ Mail local relay: using OAuth client name "${clientName}".\n`);
-          if (clientRequestedProtocolVersion && message.result.protocolVersion) {
-            message.result.protocolVersion = clientRequestedProtocolVersion;
-            line = JSON.stringify(message);
+      if (!supervisor.initialized) {
+        if (message?.id === protocolAdapter.initializeId && message?.result?.serverInfo) {
+          supervisor.handleInitializeSuccess();
+          const adapted = protocolAdapter.adaptOutbound(message);
+          const finalLine = adapted.adaptedLine || JSON.stringify(adapted.message);
+          for (const bufferedLine of preInitializationOutput) {
+            writeProtocol(bufferedLine);
           }
-          for (const bufferedLine of preInitializationOutput) writeProtocol(bufferedLine);
-          writeProtocol(line);
-          inputBuffer.length = 0;
+          writeProtocol(finalLine);
           preInitializationOutput.length = 0;
           return;
         }
-        if (message?.id === initializeId && message?.error) {
-          receivedInitializeResponse = true;
+        if (message?.id === protocolAdapter.initializeId && message?.error) {
           const errMsg = message.error.message || JSON.stringify(message.error);
-          stderr.write(`QQ Mail remote MCP initialization error: ${errMsg}\n`);
+          supervisor.handleInitializeError(errMsg);
           writeProtocol(line);
-          attempt.kill('SIGTERM');
           return;
         }
         preInitializationOutput.push(line);
         return;
       }
 
-      const request = firstPhaseIds.get(message?.id);
-      if (request) {
-        firstPhaseIds.delete(message.id);
-        const challenge = findConfirmationChallenge(message);
-        if (challenge) {
-          challenges.set(challenge.token, {
-            summary: challenge.summary,
-            toolName: request.toolName,
-            expiresAt: Date.now() + 5 * 60 * 1000
-          });
-        }
-      }
+      writeConfirmation.interceptOutbound(message);
       writeProtocol(line);
-    });
-
-    attempt.once('error', (error) => {
-      stderr.write(`Failed to start mcp-remote: ${error.message}\n`);
-    });
-    attempt.once('exit', (code, signal) => {
-      output.close();
-      const exitCode = signal ? 1 : (code ?? 1);
-      const isAbnormalExit = Boolean(signal) || (code !== 0 && code !== null);
-
-      if (isPortConflict) {
-        const portMsg = callbackPort ? `callback port ${callbackPort}` : 'OAuth callback port';
-        stderr.write(`QQ Mail local relay: ${portMsg} is already in use.\n`);
-        if (!initialized && initializeId !== undefined) {
-          writeError(initializeId, `QQ Mail local relay: ${portMsg} is already in use.`);
-        }
-        terminate(1);
-        return;
-      }
-
-      if (!initialized && !receivedInitializeResponse && isAbnormalExit) {
-        startNextCandidate();
-        return;
-      }
-      terminate(exitCode);
-    });
-  }
+    }
+  });
 
   input = readline.createInterface({ input: stdin });
   input.on('line', (line) => {
@@ -257,90 +136,53 @@ export function runRelay({
     }
 
     if (message.method === 'initialize') {
-      initializeId = message.id;
-      clientCapabilities = message.params?.capabilities ?? {};
-
-      const requestedVersion = message.params?.protocolVersion;
-      try {
-        const negotiatedVersion = negotiateProtocolVersion(requestedVersion);
-        clientRequestedProtocolVersion = requestedVersion;
-        if (negotiatedVersion !== requestedVersion) {
-          message.params.protocolVersion = negotiatedVersion;
-          line = JSON.stringify(message);
-        }
-      } catch (err) {
+      writeConfirmation.setClientCapabilities(message.params?.capabilities);
+      const adapted = protocolAdapter.adaptInbound(message);
+      if (adapted.error) {
         writeProtocol({
           jsonrpc: '2.0',
           id: message.id,
-          error: { code: -32602, message: err.message }
+          error: adapted.error
         });
-        stderr.write(`QQ Mail local relay: initialization rejected - ${err.message}\n`);
+        stderr.write(`QQ Mail local relay: initialization rejected - ${adapted.error.message}\n`);
         return;
       }
 
-      if (!child) {
-        inputBuffer.push(line);
-        startNextCandidate();
-        return;
+      line = adapted.adaptedLine || JSON.stringify(adapted.message);
+      if (!started) {
+        started = true;
+        supervisor.start();
       }
-    }
-
-    const pending = pendingElicitations.get(message.id);
-    if (!message.method && pending) {
-      pendingElicitations.delete(message.id);
-      challenges.delete(pending.token);
-      if (isConfirmedElicitationResponse(message)) {
-        forwardToChild(pending.originalLine);
-      } else {
-        writeError(pending.originalId, 'QQ Mail write operation was not confirmed by the user');
-      }
+      supervisor.send(line);
       return;
     }
 
-    if (isSecondPhaseWriteCall(message)) {
-      const token = message.params.arguments.confirmation_token;
-      const challenge = challenges.get(token);
-      if (!challenge || challenge.expiresAt <= Date.now()) {
-        challenges.delete(token);
-        writeError(
-          message.id,
-          'No valid Tencent confirmation challenge was observed. Start the write operation again without confirmation_token.'
-        );
+    const action = writeConfirmation.interceptInbound(message, line);
+    switch (action.action) {
+      case 'elicit':
+        writeProtocol(action.elicitationMessage);
         return;
-      }
-      if (!hasElicitationCapability(clientCapabilities)) {
-        writeError(
-          message.id,
-          'This MCP client does not support elicitation, so the QQ Mail write operation was blocked.'
-        );
+      case 'error':
+        writeError(action.originalId, action.error.message);
         return;
-      }
-      const elicitationId = `qqmail-confirm-${process.pid}-${Date.now()}-${message.id}`;
-      pendingElicitations.set(elicitationId, {
-        originalId: message.id,
-        originalLine: line,
-        token
-      });
-      writeProtocol(buildConfirmationElicitation(elicitationId, challenge.summary));
-      return;
+      case 'forward_confirmed':
+        supervisor.send(action.originalLine);
+        return;
+      case 'reject_unconfirmed':
+        writeError(action.originalId, action.error.message);
+        return;
+      case 'pass':
+      default:
+        supervisor.send(line);
+        return;
     }
-
-    if (
-      message.method === 'tools/call' &&
-      isWriteTool(message.params?.name) &&
-      message.params?.arguments?.confirmation_token === undefined
-    ) {
-      firstPhaseIds.set(message.id, { toolName: message.params.name });
-    }
-
-    if (!initialized) inputBuffer.push(line);
-    forwardToChild(line);
   });
-  input.once('close', () => child?.stdin?.end());
+
+  input.once('close', () => supervisor.activeChild?.stdin?.end());
 
   if (handleSignals) {
     for (const signal of ['SIGINT', 'SIGTERM']) {
-      process.on(signal, () => child?.kill(signal));
+      process.on(signal, () => supervisor.kill(signal));
     }
   }
 }

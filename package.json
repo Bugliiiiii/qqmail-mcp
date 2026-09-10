@@ -40,7 +40,7 @@
   },
   "scripts": {
     "test": "npm run check",
-    "check": "node --check src/config.js && node --check bin/qqmail-mcp.js && node --test test/*.test.mjs test/mcp-smoke.mjs",
+    "check": "node --check src/config.js && node --check src/protocol-adapter.js && node --check src/write-confirmation.js && node --check src/upstream-supervisor.js && node --check src/relay-policy.js && node --check bin/qqmail-mcp.js && node --test test/*.test.mjs test/mcp-smoke.mjs",
     "smoke": "node --test test/mcp-smoke.mjs",
     "prepack": "npm run check"
   },
