@@ -145,16 +145,25 @@ export function runRelay({
     const clientName = candidates[candidateIndex++];
     const credentialDir = getClientCredentialDir(stateRoot, clientName);
     stderr.write(`QQ Mail local relay: trying OAuth client name "${clientName}".\n`);
+    let isPortConflict = false;
     const attempt = spawnFn(
       process.execPath,
       [resolveMcpRemoteBin(), ...buildRemoteArgs({ clientName, callbackPort })],
       {
         env: { ...env, MCP_REMOTE_CONFIG_DIR: credentialDir },
-        stdio: ['pipe', 'pipe', 'inherit']
+        stdio: ['pipe', 'pipe', 'pipe']
       }
     );
     child = attempt;
     preInitializationOutput.length = 0;
+
+    attempt.stderr?.on('data', (chunk) => {
+      stderr.write(chunk);
+      const text = chunk.toString();
+      if (text.includes('EADDRINUSE') || text.includes('address already in use')) {
+        isPortConflict = true;
+      }
+    });
 
     for (const line of inputBuffer) forwardToChild(line);
 
@@ -209,15 +218,20 @@ export function runRelay({
     });
     attempt.once('exit', (code, signal) => {
       output.close();
-      if (!initialized) {
-        if (!receivedInitializeResponse) {
-          startNextCandidate();
-          return;
-        }
-        onExitCode(signal ? 1 : (code ?? 1));
+      const exitCode = signal ? 1 : (code ?? 1);
+      const isAbnormalExit = Boolean(signal) || (code !== 0 && code !== null);
+
+      if (isPortConflict) {
+        stderr.write(`QQ Mail local relay: callback port ${callbackPort} is already in use.\n`);
+        onExitCode(1);
         return;
       }
-      onExitCode(signal ? 1 : (code ?? 1));
+
+      if (!initialized && !receivedInitializeResponse && isAbnormalExit) {
+        startNextCandidate();
+        return;
+      }
+      onExitCode(exitCode);
     });
   }
 
@@ -248,6 +262,12 @@ export function runRelay({
           error: { code: -32602, message: err.message }
         });
         stderr.write(`QQ Mail local relay: initialization rejected - ${err.message}\n`);
+        return;
+      }
+
+      if (!child) {
+        inputBuffer.push(line);
+        startNextCandidate();
         return;
       }
     }
@@ -310,8 +330,6 @@ export function runRelay({
       process.on(signal, () => child?.kill(signal));
     }
   }
-
-  startNextCandidate();
 }
 
 function isDirectExecution() {

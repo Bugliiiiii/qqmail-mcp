@@ -100,11 +100,7 @@ test('initialize error is forwarded to client and stderr without rotating to nex
     env: { MCP_REMOTE_CONFIG_DIR: tmpDir }
   });
 
-  assert.equal(harness.spawnedChildren.length, 1);
-  const firstChild = harness.spawnedChildren[0];
-  assert.equal(firstChild.clientName, 'Codex');
-
-  // Client sends initialize request
+  // Client sends initialize request to trigger child spawn
   harness.stdin.write(
     JSON.stringify({
       jsonrpc: '2.0',
@@ -113,6 +109,12 @@ test('initialize error is forwarded to client and stderr without rotating to nex
       params: { protocolVersion: '2025-03-26', capabilities: {} }
     }) + '\n'
   );
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(harness.spawnedChildren.length, 1);
+  const firstChild = harness.spawnedChildren[0];
+  assert.equal(firstChild.clientName, 'Codex');
 
   // Child returns an initialize error (e.g. protocol mismatch or Tencent server error)
   firstChild.stdout.write(
@@ -155,6 +157,18 @@ test('child process exiting before receiving initialize response triggers fallba
     env: { MCP_REMOTE_CONFIG_DIR: tmpDir }
   });
 
+  // Client sends initialize request to trigger candidate spawn
+  harness.stdin.write(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-03-26', capabilities: {} }
+    }) + '\n'
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
   assert.equal(harness.spawnedChildren.length, 1);
   const firstChild = harness.spawnedChildren[0];
   assert.equal(firstChild.clientName, 'Codex');
@@ -169,70 +183,75 @@ test('child process exiting before receiving initialize response triggers fallba
   assert.equal(harness.spawnedChildren[1].clientName, 'Claude');
 });
 
-test('adapts protocol version 2024-11-05 to 2025-03-26 when forwarding initialize', async (t) => {
-  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
-  t.after(() => rm(tmpDir, { recursive: true, force: true }));
+for (const version of ['2024-11-05', '2025-11-25']) {
+  test(`adapts protocol version ${version} when forwarding and echoes ${version} back to client`, async (t) => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
+    t.after(() => rm(tmpDir, { recursive: true, force: true }));
 
-  const harness = createTestHarness(tmpDir);
+    const harness = createTestHarness(tmpDir);
 
-  runRelay({
-    stdin: harness.stdin,
-    stdout: harness.stdout,
-    stderr: harness.stderr,
-    spawnFn: harness.mockSpawn,
-    onExitCode: harness.onExitCode,
-    handleSignals: false,
-    env: { MCP_REMOTE_CONFIG_DIR: tmpDir }
-  });
+    runRelay({
+      stdin: harness.stdin,
+      stdout: harness.stdout,
+      stderr: harness.stderr,
+      spawnFn: harness.mockSpawn,
+      onExitCode: harness.onExitCode,
+      handleSignals: false,
+      env: { MCP_REMOTE_CONFIG_DIR: tmpDir }
+    });
 
-  const child = harness.spawnedChildren[0];
-  const childReceived = [];
-  let buffer = '';
-  child.stdin.on('data', (chunk) => {
-    buffer += chunk.toString();
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (line.trim()) childReceived.push(JSON.parse(line));
-    }
-  });
+    // Client sends initialize with requested version
+    harness.stdin.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 42,
+        method: 'initialize',
+        params: { protocolVersion: version, capabilities: {} }
+      }) + '\n'
+    );
 
-  // Client sends 2024-11-05
-  harness.stdin.write(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: 42,
-      method: 'initialize',
-      params: { protocolVersion: '2024-11-05', capabilities: {} }
-    }) + '\n'
-  );
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  assert.equal(childReceived.length, 1);
-  assert.equal(childReceived[0].id, 42);
-  assert.equal(childReceived[0].params.protocolVersion, '2025-03-26');
-
-  // Child returns serverInfo with protocolVersion 2025-03-26
-  child.stdout.write(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: 42,
-      result: {
-        protocolVersion: '2025-03-26',
-        serverInfo: { name: 'QQMail', version: '2.0' },
-        capabilities: {}
+    assert.equal(harness.spawnedChildren.length, 1);
+    const child = harness.spawnedChildren[0];
+    const childReceived = [];
+    let buffer = '';
+    child.stdin.on('data', (chunk) => {
+      buffer += chunk.toString();
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (line.trim()) childReceived.push(JSON.parse(line));
       }
-    }) + '\n'
-  );
+    });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
-  // Client receives echoed 2024-11-05
-  assert.equal(harness.stdoutLines.length, 1);
-  assert.equal(harness.stdoutLines[0].id, 42);
-  assert.equal(harness.stdoutLines[0].result.protocolVersion, '2024-11-05');
-});
+    assert.equal(childReceived.length, 1);
+    assert.equal(childReceived[0].id, 42);
+    assert.equal(childReceived[0].params.protocolVersion, '2025-03-26');
+
+    // Child returns serverInfo with protocolVersion 2025-03-26
+    child.stdout.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 42,
+        result: {
+          protocolVersion: '2025-03-26',
+          serverInfo: { name: 'QQMail', version: '2.0' },
+          capabilities: {}
+        }
+      }) + '\n'
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Client receives echoed requested version
+    assert.equal(harness.stdoutLines.length, 1);
+    assert.equal(harness.stdoutLines[0].id, 42);
+    assert.equal(harness.stdoutLines[0].result.protocolVersion, version);
+  });
+}
 
 test('rejects unknown protocol version immediately without forwarding to child', async (t) => {
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
@@ -266,9 +285,11 @@ test('rejects unknown protocol version immediately without forwarding to child',
   assert.equal(harness.stdoutLines[0].id, 99);
   assert.equal(harness.stdoutLines[0].error.code, -32602);
   assert.match(harness.stdoutLines[0].error.message, /Unsupported protocol version/);
+  // Must not spawn any child or start OAuth when protocol version is invalid
+  assert.equal(harness.spawnedChildren.length, 0);
 });
 
-test('adapts protocol version 2025-11-25 when forwarding and echoes 2025-11-25 back to client', async (t) => {
+test('does not fallback when child process exits cleanly with code 0 before initialize', async (t) => {
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
   t.after(() => rm(tmpDir, { recursive: true, force: true }));
 
@@ -284,52 +305,63 @@ test('adapts protocol version 2025-11-25 when forwarding and echoes 2025-11-25 b
     env: { MCP_REMOTE_CONFIG_DIR: tmpDir }
   });
 
-  const child = harness.spawnedChildren[0];
-  const childReceived = [];
-  let buffer = '';
-  child.stdin.on('data', (chunk) => {
-    buffer += chunk.toString();
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (line.trim()) childReceived.push(JSON.parse(line));
-    }
-  });
-
-  // Client sends 2025-11-25
   harness.stdin.write(
     JSON.stringify({
       jsonrpc: '2.0',
-      id: 55,
+      id: 1,
       method: 'initialize',
-      params: { protocolVersion: '2025-11-25', capabilities: {} }
+      params: { protocolVersion: '2025-03-26', capabilities: {} }
     }) + '\n'
   );
 
   await new Promise((resolve) => setTimeout(resolve, 50));
 
-  assert.equal(childReceived.length, 1);
-  assert.equal(childReceived[0].id, 55);
-  // Remote child receives adapted 2025-03-26
-  assert.equal(childReceived[0].params.protocolVersion, '2025-03-26');
+  const child = harness.spawnedChildren[0];
+  // Child exits cleanly without outputting initialize response
+  child.emit('exit', 0, null);
 
-  // Child returns serverInfo with protocolVersion 2025-03-26
-  child.stdout.write(
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Must not trigger fallback to next candidate
+  assert.equal(harness.spawnedChildren.length, 1);
+  assert.equal(harness.getExitCode(), 0);
+});
+
+test('does not fallback and reports error when callback port is already in use', async (t) => {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
+  t.after(() => rm(tmpDir, { recursive: true, force: true }));
+
+  const harness = createTestHarness(tmpDir);
+
+  runRelay({
+    stdin: harness.stdin,
+    stdout: harness.stdout,
+    stderr: harness.stderr,
+    spawnFn: harness.mockSpawn,
+    onExitCode: harness.onExitCode,
+    handleSignals: false,
+    env: { MCP_REMOTE_CONFIG_DIR: tmpDir, QQMAIL_OAUTH_CALLBACK_PORT: '8080' }
+  });
+
+  harness.stdin.write(
     JSON.stringify({
       jsonrpc: '2.0',
-      id: 55,
-      result: {
-        protocolVersion: '2025-03-26',
-        serverInfo: { name: 'QQMail', version: '2.0' },
-        capabilities: {}
-      }
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-03-26', capabilities: {} }
     }) + '\n'
   );
 
   await new Promise((resolve) => setTimeout(resolve, 50));
 
-  // Client receives echoed 2025-11-25
-  assert.equal(harness.stdoutLines.length, 1);
-  assert.equal(harness.stdoutLines[0].id, 55);
-  assert.equal(harness.stdoutLines[0].result.protocolVersion, '2025-11-25');
+  const child = harness.spawnedChildren[0];
+  child.stderr.write('listen EADDRINUSE: address already in use :::8080\n');
+  child.emit('exit', 1, null);
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Must not fallback to next candidate on port conflict
+  assert.equal(harness.spawnedChildren.length, 1);
+  assert.equal(harness.getExitCode(), 1);
+  assert.match(harness.getStderr(), /callback port 8080 is already in use/);
 });
