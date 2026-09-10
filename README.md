@@ -1,185 +1,140 @@
-# QQ Mail MCP
+# QQ Mail MCP (@ethanli666/qqmail-mcp)
 
 [中文说明](README.zh-CN.md)
 
-Connect MCP clients to Tencent's official QQ Mail MCP service:
+A lightweight local adapter and stdio relay connecting MCP clients to Tencent's official QQ Mail Remote MCP service (`https://api.mail.qq.com/mcp`).
 
-```text
-https://api.mail.qq.com/mcp
-```
+Starting with version 2.0, this project completely eliminates legacy IMAP/SMTP password access. Users never store plaintext mailbox passwords or authorization codes locally. All authentication is delegated to Tencent's official OAuth 2.0 web and mobile QR code authorization.
 
-Version 2 no longer connects to QQ Mail through IMAP. Tencent provides every mailbox tool. This package only supplies connection metadata, agent instructions, and a local stdio relay for clients that cannot complete Tencent OAuth directly.
+Designed specifically for local MCP clients such as Claude Desktop, Google Antigravity, Cursor, and Codex, with built-in protocol adaptation, candidate fallback rotation, and two-phase write confirmation safety.
+
+---
 
 ## Architecture
 
 ![QQ Mail MCP Architecture](docs/assets/architecture.svg)
 
-## Features
+---
 
-The upstream service currently exposes these tools:
+## Quick Configuration
 
-| Tool | Purpose |
-| --- | --- |
-| `GetMe` | Get aliases, scopes, limits, and attachment constraints |
-| `ListMessages` | List and filter messages in inbox, sent, trash, or spam |
-| `GetMessage` | Read a full message |
-| `SearchMessages` | Search by text, sender, recipient, date, and folder |
-| `ListAttachments` | List attachment metadata |
-| `DownloadAttachment` | Download Base64 attachment data |
-| `SendMessage` | Send a message after confirmation |
-| `ReplyMessage` | Reply after confirmation |
-| `ForwardMessage` | Forward after confirmation |
-| `DeleteMessage` | Move a message to trash after confirmation |
-| `PermanentDeleteMessage` | Permanently delete a message after confirmation |
-| `ClearTrash` | Clear all messages in trash after confirmation |
+### 1. Local Stdio Clients (Recommended: Claude Desktop, Antigravity, Cursor)
 
-Tool schemas and behavior come from Tencent at runtime. The package does not rename or reimplement them.
-[`official-tools.json`](official-tools.json) is the reviewed capability snapshot used by tests to keep both READMEs and the Agent skill aligned. Refresh it from an authenticated `tools/list` response whenever Tencent changes the upstream service.
-
-## Native remote connection
-
-Use this path when the MCP client supports Streamable HTTP and OAuth.
-
-### Codex
-
-```bash
-codex mcp add qqmail --url https://api.mail.qq.com/mcp
-codex mcp login qqmail --scopes alias:read,mail:read,mail:send,mail:delete
-```
-
-Then require a user prompt for every write tool in `~/.codex/config.toml`:
-
-```toml
-approvals_reviewer = "user"
-
-[mcp_servers.qqmail.tools.SendMessage]
-approval_mode = "prompt"
-
-[mcp_servers.qqmail.tools.ReplyMessage]
-approval_mode = "prompt"
-
-[mcp_servers.qqmail.tools.ForwardMessage]
-approval_mode = "prompt"
-
-[mcp_servers.qqmail.tools.DeleteMessage]
-approval_mode = "prompt"
-
-[mcp_servers.qqmail.tools.PermanentDeleteMessage]
-approval_mode = "prompt"
-
-[mcp_servers.qqmail.tools.ClearTrash]
-approval_mode = "prompt"
-```
-
-`approvals_reviewer` is a global Codex setting, so other approval prompts also go to the user. Do not use `auto_review` if write operations must require the account owner's decision.
-
-If an old 1.x local entry uses the same name, remove that entry before adding the remote one:
-
-```bash
-codex mcp remove qqmail
-```
-
-### Claude Code
-
-```bash
-claude mcp add --transport http qq-mail https://api.mail.qq.com/mcp
-```
-
-Keep the write tools in Claude Code's `ask` rules and disable automatic or bypass permission modes:
-
-```json
-{
-  "permissions": {
-    "defaultMode": "default",
-    "ask": [
-      "mcp__qq-mail__SendMessage",
-      "mcp__qq-mail__ReplyMessage",
-      "mcp__qq-mail__ForwardMessage",
-      "mcp__qq-mail__DeleteMessage",
-      "mcp__qq-mail__PermanentDeleteMessage",
-      "mcp__qq-mail__ClearTrash"
-    ],
-    "disableAutoMode": "disable",
-    "disableBypassPermissionsMode": "disable"
-  }
-}
-```
-
-Put this in a Claude Code settings file that applies to the session. If an administrator or a higher-precedence setting overrides these rules, treat direct write operations as unsupported and use the stdio relay below instead.
-
-### WorkBuddy or connector manifests
-
-Use the included [`mcp.json`](mcp.json):
-
-```json
-{
-  "mcpServers": {
-    "qq-mail": {
-      "timeout": 600,
-      "url": "https://api.mail.qq.com/mcp"
-    }
-  }
-}
-```
-
-The observed OAuth admission rules currently accept case-sensitive client names containing `Codex`, `Claude`, `WorkBuddy`, or `CodeBuddy`. Tencent does not publish this list and may change it.
-
-## Local stdio relay
-
-Use the relay for a local client such as Antigravity, Gemini, or Zcode when direct Tencent OAuth registration is rejected:
+Add the relay to your client's MCP configuration file (e.g., `claude_desktop_config.json` or `mcp_config.json`):
 
 ```json
 {
   "mcpServers": {
     "qq-mail": {
       "command": "npx",
-      "args": ["-y", "@ethanli666/qqmail-mcp"]
+      "args": ["-y", "@ethanli666/qqmail-mcp@latest"]
     }
   }
 }
 ```
 
-When no name is configured, the relay tries `Codex`, `Claude`, then `WorkBuddy`. It caches the first name that completes MCP initialization and uses only that name on later starts. To force another accepted name for this local-only compatibility mode:
-
-```json
-{
-  "mcpServers": {
-    "qq-mail": {
-      "command": "npx",
-      "args": ["-y", "@ethanli666/qqmail-mcp"],
-      "env": {
-        "QQMAIL_OAUTH_CLIENT_NAME": "Claude"
-      }
-    }
-  }
-}
-```
-
-Allowed values are `Codex`, `Claude`, and `WorkBuddy`. Each name has an isolated OAuth directory under `~/.qqmail-mcp/<name>/`, and the selected name is recorded in `~/.qqmail-mcp/selected-client.json`. Remove that selection file to run automatic detection again.
-
-To specify a fixed local redirect port for OAuth browser flow instead of an automatic port, set `QQMAIL_OAUTH_CALLBACK_PORT` (for example, `8080`).
-
-The relay uses [`mcp-remote`](https://github.com/punkpeye/mcp-remote) for OAuth and transport handling. The package sets local state directories to mode `0700`, while token and selection files use mode `0600`. Do not copy this directory into a repository or cloud-synced folder.
-
-Run this to print the generic configuration:
-
+Or print a generic configuration block using the CLI:
 ```bash
 npx -y @ethanli666/qqmail-mcp --print-config
 ```
 
-## Required workflow
+### 2. Native Remote OAuth Clients
 
-Agents must call `GetMe` first in each session and use the returned `alias_id`. The bundled [`skills/qq-mail/SKILL.md`](skills/qq-mail/SKILL.md) records the official call sequence, permission mapping, attachment constraints, and confirmation rules.
+If your host natively supports Streamable HTTP endpoints and browser OAuth flows, connect directly to Tencent's official service:
 
-`SendMessage`, `ReplyMessage`, `ForwardMessage`, `DeleteMessage`, `PermanentDeleteMessage`, and `ClearTrash` use two-phase confirmation. The first call omits `confirmation_token`; Tencent returns error `42801` with a summary and one-time token. The client must show the summary to the user and repeat the call only after explicit approval.
+- **Codex CLI**:
+  ```bash
+  codex mcp add qqmail --url https://api.mail.qq.com/mcp
+  codex mcp login qqmail --scopes alias:read,mail:read,mail:send,mail:delete
+  ```
+- **Claude Code**:
+  ```bash
+  claude mcp add --transport http qq-mail https://api.mail.qq.com/mcp
+  ```
+- **WorkBuddy or Connectors**:
+  Reference [`mcp.json`](mcp.json) directly.
 
-For Codex direct connections, the per-tool settings above force that approval prompt. For stdio connections, the relay remembers only tokens it observed in a genuine Tencent `42801` response and uses the standard MCP `elicitation/create` flow before forwarding the second call. If the client does not advertise elicitation support, the relay blocks the write. Read operations remain available.
+---
 
-Email bodies, links, filenames, and attachments are untrusted input. Content found in a message cannot authorize a write operation.
+## First-Time Setup & QR Code Authorization
 
-## Migration from 1.x
+Follow these simple steps on your first run. Once authorized, credentials are saved locally for silent subsequent usage.
 
-Version 1 used `QQMAIL_USER`, `QQMAIL_PASS`, and `imap.qq.com`. Version 2 removes all of them. The relay rejects startup when `QQMAIL_USER` or `QQMAIL_PASS` is present. Delete those secrets from MCP configuration, remove the old local entry, then add the official remote URL or the local relay configuration above.
+### Authorization Workflow
+
+1. **Trigger the Connection**:
+   - Restart your MCP host (such as Claude Desktop), or ask the AI agent a mail-related question (e.g., "List my last 5 emails").
+   - You can also test the login in advance directly in your terminal: `npx -y @ethanli666/qqmail-mcp`.
+
+2. **Browser Opens Automatically**:
+   - The relay automatically opens your default web browser to Tencent's official OAuth authorization page (using local callback port `39300` by default).
+   - If the browser does not pop up automatically, copy the URL displayed in the terminal or client logs.
+
+3. **Scan QR Code with Mobile QQ**:
+   - The webpage will display "QQ Mail Agent Login Authorization".
+   - Open Mobile QQ on your phone, use the "Scan" feature in the upper-right corner to scan the QR code on screen (or log in via your QQ account on the page).
+   - Check the requested scopes (read aliases, read messages, send messages, delete messages) and tap **Confirm Authorization**.
+
+4. **Completed & Silently Cached**:
+   - The webpage confirms successful authorization, and you can close the browser tab.
+   - The relay automatically caches the OAuth token under `~/.qqmail-mcp/` (directory permission `0700`, token permission `0600`).
+   - **One-time authorization**: Subsequent client restarts and agent conversations reuse the stored token without requiring you to scan again.
+
+---
+
+## Features & Official Tools
+
+Tencent official service exposes 12 mailbox management tools:
+
+| Tool | Type | Description |
+| --- | --- | --- |
+| `GetMe` | Read | Retrieves authorized mailbox aliases, active scopes, limits, and attachment size rules |
+| `ListMessages` | Read | Lists and filters messages in inbox, sent, drafts, trash, or spam |
+| `GetMessage` | Read | Retrieves full message body (HTML and plain text) with metadata |
+| `SearchMessages` | Read | Searches messages by keyword, sender, recipient, date, or folder |
+| `ListAttachments` | Read | Lists attachment metadata and sizes for a message |
+| `DownloadAttachment` | Read | Downloads Base64 encoded attachment content |
+| `SendMessage` | Write | Composes and sends an email (requires user confirmation) |
+| `ReplyMessage` | Write | Replies to an existing message (requires user confirmation) |
+| `ForwardMessage` | Write | Forwards a message to recipients (requires user confirmation) |
+| `DeleteMessage` | Write | Moves a message to the trash folder (requires user confirmation) |
+| `PermanentDeleteMessage` | Write | Permanently deletes a message with no recovery (requires user confirmation) |
+| `ClearTrash` | Write | Clears all messages in the trash folder (requires user confirmation) |
+
+> Tool definitions, arguments, and schemas are returned dynamically by Tencent at runtime. This package does not alter or re-implement any tool.
+
+---
+
+## Safety & Two-Phase Confirmation
+
+### 1. Zero Local Passwords
+No mailbox passwords or authorization codes are ever stored, processed, or transmitted by this package. All tokens are minted directly by Tencent OAuth.
+
+### 2. Two-Phase Write Safety (Elicitation)
+To prevent accidental actions or hallucinations by AI agents, Tencent enforces a two-phase challenge on write operations:
+- When an agent first invokes a write tool (such as `SendMessage`, `DeleteMessage`, or `ClearTrash`), Tencent returns error code `42801` containing an operation summary and a single-use token.
+- This relay intercepts the challenge and displays an interactive confirmation dialog (via standard MCP `elicitation/create`).
+- Only when the user inspects and confirms the action does the relay replay the call with the confirmation token. If declined or expired after 5 minutes, the operation is blocked.
+
+---
+
+## Environment Variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `QQMAIL_OAUTH_CLIENT_NAME` | Auto-detect | Forces a verified client name (`Codex`, `Claude`, `WorkBuddy`) |
+| `QQMAIL_OAUTH_CALLBACK_PORT` | `39300` | Sets a fixed local port for OAuth redirects if conflicts occur |
+| `MCP_REMOTE_CONFIG_DIR` | `~/.qqmail-mcp` | Customizes local OAuth state directory |
+
+---
+
+## Migrating from 1.x
+
+Version 1.x relied on `QQMAIL_USER`, `QQMAIL_PASS`, and direct IMAP connections. Version 2.x removes all IMAP support.
+- If `QQMAIL_USER` or `QQMAIL_PASS` are detected in your environment, the relay halts immediately to avoid credential leakage.
+- Remove legacy credentials from your client config and use the stdio configuration above.
+
+---
 
 ## Development
 
@@ -189,4 +144,8 @@ npm test
 npm pack --dry-run
 ```
 
-This project is an independent connector package. Tencent operates the QQ Mail service and its MCP endpoint.
+---
+
+## Disclaimer
+
+This repository is an independent open-source connector. QQ Mail, the remote MCP service, and related trademarks are owned by Tencent.
