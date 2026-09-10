@@ -84,10 +84,14 @@ function createTestHarness(tmpDir) {
   };
 }
 
-test('initialize error is forwarded to client and stderr without rotating to next client name', async (t) => {
-  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
-  t.after(() => rm(tmpDir, { recursive: true, force: true }));
-
+async function startTestRelay(
+  tmpDir,
+  {
+    env = {},
+    id = 1,
+    initializeParams = { protocolVersion: '2025-03-26', capabilities: {} }
+  } = {}
+) {
   const harness = createTestHarness(tmpDir);
 
   runRelay({
@@ -97,20 +101,29 @@ test('initialize error is forwarded to client and stderr without rotating to nex
     spawnFn: harness.mockSpawn,
     onExitCode: harness.onExitCode,
     handleSignals: false,
-    env: { MCP_REMOTE_CONFIG_DIR: tmpDir }
+    env: { MCP_REMOTE_CONFIG_DIR: tmpDir, ...env }
   });
 
-  // Client sends initialize request to trigger child spawn
-  harness.stdin.write(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: { protocolVersion: '2025-03-26', capabilities: {} }
-    }) + '\n'
-  );
+  if (initializeParams) {
+    harness.stdin.write(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id,
+        method: 'initialize',
+        params: initializeParams
+      }) + '\n'
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  return harness;
+}
+
+test('initialize error is forwarded to client and stderr without rotating to next client name', async (t) => {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
+  t.after(() => rm(tmpDir, { recursive: true, force: true }));
+
+  const harness = await startTestRelay(tmpDir);
 
   assert.equal(harness.spawnedChildren.length, 1);
   const firstChild = harness.spawnedChildren[0];
@@ -145,29 +158,7 @@ test('child process exiting before receiving initialize response triggers fallba
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
   t.after(() => rm(tmpDir, { recursive: true, force: true }));
 
-  const harness = createTestHarness(tmpDir);
-
-  runRelay({
-    stdin: harness.stdin,
-    stdout: harness.stdout,
-    stderr: harness.stderr,
-    spawnFn: harness.mockSpawn,
-    onExitCode: harness.onExitCode,
-    handleSignals: false,
-    env: { MCP_REMOTE_CONFIG_DIR: tmpDir }
-  });
-
-  // Client sends initialize request to trigger candidate spawn
-  harness.stdin.write(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: { protocolVersion: '2025-03-26', capabilities: {} }
-    }) + '\n'
-  );
-
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  const harness = await startTestRelay(tmpDir);
 
   assert.equal(harness.spawnedChildren.length, 1);
   const firstChild = harness.spawnedChildren[0];
@@ -188,29 +179,10 @@ for (const version of ['2024-11-05', '2025-11-25']) {
     const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
     t.after(() => rm(tmpDir, { recursive: true, force: true }));
 
-    const harness = createTestHarness(tmpDir);
-
-    runRelay({
-      stdin: harness.stdin,
-      stdout: harness.stdout,
-      stderr: harness.stderr,
-      spawnFn: harness.mockSpawn,
-      onExitCode: harness.onExitCode,
-      handleSignals: false,
-      env: { MCP_REMOTE_CONFIG_DIR: tmpDir }
+    const harness = await startTestRelay(tmpDir, {
+      id: 42,
+      initializeParams: { protocolVersion: version, capabilities: {} }
     });
-
-    // Client sends initialize with requested version
-    harness.stdin.write(
-      JSON.stringify({
-        jsonrpc: '2.0',
-        id: 42,
-        method: 'initialize',
-        params: { protocolVersion: version, capabilities: {} }
-      }) + '\n'
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
     assert.equal(harness.spawnedChildren.length, 1);
     const child = harness.spawnedChildren[0];
@@ -257,29 +229,10 @@ test('rejects unknown protocol version immediately without forwarding to child',
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
   t.after(() => rm(tmpDir, { recursive: true, force: true }));
 
-  const harness = createTestHarness(tmpDir);
-
-  runRelay({
-    stdin: harness.stdin,
-    stdout: harness.stdout,
-    stderr: harness.stderr,
-    spawnFn: harness.mockSpawn,
-    onExitCode: harness.onExitCode,
-    handleSignals: false,
-    env: { MCP_REMOTE_CONFIG_DIR: tmpDir }
+  const harness = await startTestRelay(tmpDir, {
+    id: 99,
+    initializeParams: { protocolVersion: '2023-01-01', capabilities: {} }
   });
-
-  // Client sends unknown protocol version
-  harness.stdin.write(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: 99,
-      method: 'initialize',
-      params: { protocolVersion: '2023-01-01', capabilities: {} }
-    }) + '\n'
-  );
-
-  await new Promise((resolve) => setTimeout(resolve, 50));
 
   assert.equal(harness.stdoutLines.length, 1);
   assert.equal(harness.stdoutLines[0].id, 99);
@@ -293,28 +246,7 @@ test('does not fallback when child process exits cleanly with code 0 before init
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
   t.after(() => rm(tmpDir, { recursive: true, force: true }));
 
-  const harness = createTestHarness(tmpDir);
-
-  runRelay({
-    stdin: harness.stdin,
-    stdout: harness.stdout,
-    stderr: harness.stderr,
-    spawnFn: harness.mockSpawn,
-    onExitCode: harness.onExitCode,
-    handleSignals: false,
-    env: { MCP_REMOTE_CONFIG_DIR: tmpDir }
-  });
-
-  harness.stdin.write(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: { protocolVersion: '2025-03-26', capabilities: {} }
-    }) + '\n'
-  );
-
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  const harness = await startTestRelay(tmpDir);
 
   const child = harness.spawnedChildren[0];
   // Child exits cleanly without outputting initialize response
@@ -331,28 +263,9 @@ test('does not fallback and reports error when callback port is already in use',
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
   t.after(() => rm(tmpDir, { recursive: true, force: true }));
 
-  const harness = createTestHarness(tmpDir);
-
-  runRelay({
-    stdin: harness.stdin,
-    stdout: harness.stdout,
-    stderr: harness.stderr,
-    spawnFn: harness.mockSpawn,
-    onExitCode: harness.onExitCode,
-    handleSignals: false,
-    env: { MCP_REMOTE_CONFIG_DIR: tmpDir, QQMAIL_OAUTH_CALLBACK_PORT: '8080' }
+  const harness = await startTestRelay(tmpDir, {
+    env: { QQMAIL_OAUTH_CALLBACK_PORT: '8080' }
   });
-
-  harness.stdin.write(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: { protocolVersion: '2025-03-26', capabilities: {} }
-    }) + '\n'
-  );
-
-  await new Promise((resolve) => setTimeout(resolve, 50));
 
   const child = harness.spawnedChildren[0];
   child.stderr.write('listen EADDRINUSE: address already in use :::8080\n');
@@ -364,4 +277,26 @@ test('does not fallback and reports error when callback port is already in use',
   assert.equal(harness.spawnedChildren.length, 1);
   assert.equal(harness.getExitCode(), 1);
   assert.match(harness.getStderr(), /callback port 8080 is already in use/);
+  assert.equal(harness.stdoutLines.length, 1);
+  assert.match(harness.stdoutLines[0].error.message, /callback port 8080 is already in use/);
+});
+
+test('handles default callback port conflict without printing undefined', async (t) => {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
+  t.after(() => rm(tmpDir, { recursive: true, force: true }));
+
+  const harness = await startTestRelay(tmpDir);
+
+  const child = harness.spawnedChildren[0];
+  child.stderr.write('listen EADDRINUSE: address already in use :::3000\n');
+  child.emit('exit', 1, null);
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(harness.spawnedChildren.length, 1);
+  assert.equal(harness.getExitCode(), 1);
+  assert.match(harness.getStderr(), /OAuth callback port is already in use/);
+  assert.doesNotMatch(harness.getStderr(), /undefined/);
+  assert.equal(harness.stdoutLines.length, 1);
+  assert.match(harness.stdoutLines[0].error.message, /OAuth callback port is already in use/);
 });

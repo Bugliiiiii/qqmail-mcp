@@ -130,6 +130,12 @@ export function runRelay({
   let initialized = false;
   let receivedInitializeResponse = false;
   let clientRequestedProtocolVersion;
+  let input;
+
+  function terminate(code) {
+    input?.close();
+    onExitCode(code);
+  }
 
   function forwardToChild(line) {
     if (child?.stdin?.writable) child.stdin.write(`${line}\n`);
@@ -138,7 +144,10 @@ export function runRelay({
   function startNextCandidate() {
     if (candidateIndex >= candidates.length) {
       stderr.write('QQ Mail OAuth registration failed for every allowed client name.\n');
-      onExitCode(1);
+      if (!initialized && initializeId !== undefined) {
+        writeError(initializeId, 'QQ Mail OAuth registration failed for every allowed client name');
+      }
+      terminate(1);
       return;
     }
 
@@ -222,8 +231,12 @@ export function runRelay({
       const isAbnormalExit = Boolean(signal) || (code !== 0 && code !== null);
 
       if (isPortConflict) {
-        stderr.write(`QQ Mail local relay: callback port ${callbackPort} is already in use.\n`);
-        onExitCode(1);
+        const portMsg = callbackPort ? `callback port ${callbackPort}` : 'OAuth callback port';
+        stderr.write(`QQ Mail local relay: ${portMsg} is already in use.\n`);
+        if (!initialized && initializeId !== undefined) {
+          writeError(initializeId, `QQ Mail local relay: ${portMsg} is already in use.`);
+        }
+        terminate(1);
         return;
       }
 
@@ -231,11 +244,11 @@ export function runRelay({
         startNextCandidate();
         return;
       }
-      onExitCode(exitCode);
+      terminate(exitCode);
     });
   }
 
-  const input = readline.createInterface({ input: stdin });
+  input = readline.createInterface({ input: stdin });
   input.on('line', (line) => {
     const message = parseMessage(line);
     if (!message) {
