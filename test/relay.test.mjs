@@ -212,6 +212,26 @@ test('adapts protocol version 2024-11-05 to 2025-03-26 when forwarding initializ
   assert.equal(childReceived.length, 1);
   assert.equal(childReceived[0].id, 42);
   assert.equal(childReceived[0].params.protocolVersion, '2025-03-26');
+
+  // Child returns serverInfo with protocolVersion 2025-03-26
+  child.stdout.write(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 42,
+      result: {
+        protocolVersion: '2025-03-26',
+        serverInfo: { name: 'QQMail', version: '2.0' },
+        capabilities: {}
+      }
+    }) + '\n'
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Client receives echoed 2024-11-05
+  assert.equal(harness.stdoutLines.length, 1);
+  assert.equal(harness.stdoutLines[0].id, 42);
+  assert.equal(harness.stdoutLines[0].result.protocolVersion, '2024-11-05');
 });
 
 test('rejects unknown protocol version immediately without forwarding to child', async (t) => {
