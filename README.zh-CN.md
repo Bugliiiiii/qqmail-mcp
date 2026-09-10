@@ -10,6 +10,10 @@ https://api.mail.qq.com/mcp
 
 从 2.0.0 开始，项目不再通过 IMAP 访问邮箱。邮件工具全部由腾讯提供，本包只提供连接配置、Agent 调用规范，以及供不支持腾讯 OAuth 的本地客户端使用的 stdio 中继。
 
+## 架构
+
+![QQ Mail MCP 架构](docs/assets/architecture.svg)
+
 ## 官方功能
 
 腾讯服务当前提供以下工具：

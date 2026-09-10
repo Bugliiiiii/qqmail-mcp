@@ -10,6 +10,10 @@ https://api.mail.qq.com/mcp
 
 Version 2 no longer connects to QQ Mail through IMAP. Tencent provides every mailbox tool. This package only supplies connection metadata, agent instructions, and a local stdio relay for clients that cannot complete Tencent OAuth directly.
 
+## Architecture
+
+![QQ Mail MCP Architecture](docs/assets/architecture.svg)
+
 ## Features
 
 The upstream service currently exposes these tools:
