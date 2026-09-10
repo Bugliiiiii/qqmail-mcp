@@ -247,3 +247,69 @@ test('rejects unknown protocol version immediately without forwarding to child',
   assert.equal(harness.stdoutLines[0].error.code, -32602);
   assert.match(harness.stdoutLines[0].error.message, /Unsupported protocol version/);
 });
+
+test('adapts protocol version 2025-11-25 when forwarding and echoes 2025-11-25 back to client', async (t) => {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qqmail-test-'));
+  t.after(() => rm(tmpDir, { recursive: true, force: true }));
+
+  const harness = createTestHarness(tmpDir);
+
+  runRelay({
+    stdin: harness.stdin,
+    stdout: harness.stdout,
+    stderr: harness.stderr,
+    spawnFn: harness.mockSpawn,
+    onExitCode: harness.onExitCode,
+    handleSignals: false,
+    env: { MCP_REMOTE_CONFIG_DIR: tmpDir }
+  });
+
+  const child = harness.spawnedChildren[0];
+  const childReceived = [];
+  let buffer = '';
+  child.stdin.on('data', (chunk) => {
+    buffer += chunk.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.trim()) childReceived.push(JSON.parse(line));
+    }
+  });
+
+  // Client sends 2025-11-25
+  harness.stdin.write(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 55,
+      method: 'initialize',
+      params: { protocolVersion: '2025-11-25', capabilities: {} }
+    }) + '\n'
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(childReceived.length, 1);
+  assert.equal(childReceived[0].id, 55);
+  // Remote child receives adapted 2025-03-26
+  assert.equal(childReceived[0].params.protocolVersion, '2025-03-26');
+
+  // Child returns serverInfo with protocolVersion 2025-03-26
+  child.stdout.write(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      id: 55,
+      result: {
+        protocolVersion: '2025-03-26',
+        serverInfo: { name: 'QQMail', version: '2.0' },
+        capabilities: {}
+      }
+    }) + '\n'
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Client receives echoed 2025-11-25
+  assert.equal(harness.stdoutLines.length, 1);
+  assert.equal(harness.stdoutLines[0].id, 55);
+  assert.equal(harness.stdoutLines[0].result.protocolVersion, '2025-11-25');
+});

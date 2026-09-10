@@ -129,6 +129,7 @@ export function runRelay({
   let candidateIndex = 0;
   let initialized = false;
   let receivedInitializeResponse = false;
+  let clientRequestedProtocolVersion;
 
   function forwardToChild(line) {
     if (child?.stdin?.writable) child.stdin.write(`${line}\n`);
@@ -166,6 +167,10 @@ export function runRelay({
           initialized = true;
           cacheClient(cachePath, clientName);
           stderr.write(`QQ Mail local relay: using OAuth client name "${clientName}".\n`);
+          if (clientRequestedProtocolVersion && message.result.protocolVersion) {
+            message.result.protocolVersion = clientRequestedProtocolVersion;
+            line = JSON.stringify(message);
+          }
           for (const bufferedLine of preInitializationOutput) writeProtocol(bufferedLine);
           writeProtocol(line);
           inputBuffer.length = 0;
@@ -231,6 +236,7 @@ export function runRelay({
       const requestedVersion = message.params?.protocolVersion;
       try {
         const negotiatedVersion = negotiateProtocolVersion(requestedVersion);
+        clientRequestedProtocolVersion = requestedVersion;
         if (negotiatedVersion !== requestedVersion) {
           message.params.protocolVersion = negotiatedVersion;
           line = JSON.stringify(message);

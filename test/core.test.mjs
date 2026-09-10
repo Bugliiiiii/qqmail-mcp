@@ -242,10 +242,11 @@ test('rejects v1 plain-text credentials and guides users to OAuth', () => {
   );
 });
 
-test('negotiates protocol version: adapts 2024-11-05 to 2025-03-26 and fails on unknown versions', () => {
+test('negotiates protocol version: adapts 2024-11-05 and 2025-11-25 to 2025-03-26 and fails on unknown versions', () => {
   assert.equal(TARGET_PROTOCOL_VERSION, '2025-03-26');
   assert.equal(negotiateProtocolVersion('2025-03-26'), '2025-03-26');
   assert.equal(negotiateProtocolVersion('2024-11-05'), '2025-03-26');
+  assert.equal(negotiateProtocolVersion('2025-11-25'), '2025-03-26');
   assert.throws(() => negotiateProtocolVersion('2023-01-01'), /Unsupported protocol version/);
   assert.throws(() => negotiateProtocolVersion(''), /Unsupported protocol version/);
   assert.throws(() => negotiateProtocolVersion(undefined), /Unsupported protocol version/);
