@@ -1,8 +1,8 @@
 {
   "name": "@ethanli666/qqmail-mcp",
-  "version": "1.2.2",
+  "version": "2.0.0",
   "type": "module",
-  "description": "Portable QQ Mail MCP server for reading messages and downloading attachments",
+  "description": "Connect MCP clients to Tencent's official QQ Mail MCP service",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -15,6 +15,9 @@
   "files": [
     "bin",
     "src",
+    "mcp.json",
+    "official-tools.json",
+    "skills",
     "README.md",
     "README.zh-CN.md",
     "LICENSE",
@@ -28,21 +31,23 @@
     "model-context-protocol",
     "qqmail",
     "foxmail",
-    "imap",
+    "oauth",
+    "remote-mcp",
     "email"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "check": "node --check src/index.js && node --test test/*.test.mjs",
-    "smoke": "node test/mcp-smoke.mjs",
-    "prepack": "npm run check && npm run smoke"
+    "test": "npm run check",
+    "check": "node --check src/config.js && node --check bin/qqmail-mcp.js && node --test test/*.test.mjs test/mcp-smoke.mjs",
+    "smoke": "node --test test/mcp-smoke.mjs",
+    "prepack": "npm run check"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.27.1",
-    "imapflow": "1.7.0",
-    "mailparser": "3.9.20",
-    "zod": "4.3.6"
+    "mcp-remote": "^0.8.6"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
   }
 }

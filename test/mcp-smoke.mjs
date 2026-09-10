@@ -1,43 +1,19 @@
+import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
-const transport = new StdioClientTransport({
-  command: process.env.QQMAIL_MCP_COMMAND || process.execPath,
-  args: process.env.QQMAIL_MCP_ARGS ? JSON.parse(process.env.QQMAIL_MCP_ARGS) : ['src/index.js'],
-  env: {
-    ...process.env,
-    QQMAIL_USER: 'smoke-test@qq.com',
-    QQMAIL_PASS: 'not-a-real-secret'
-  }
+const execFileAsync = promisify(execFile);
+
+test('CLI prints an unpinned stdio configuration for local-only fallback clients', async () => {
+  const { stdout } = await execFileAsync(process.execPath, ['bin/qqmail-mcp.js', '--print-config']);
+  const config = JSON.parse(stdout);
+  assert.deepEqual(config, {
+    mcpServers: {
+      'qq-mail': {
+        command: 'npx',
+        args: ['-y', '@ethanli666/qqmail-mcp']
+      }
+    }
+  });
 });
-const client = new Client({ name: 'qqmail-smoke-test', version: '1.0.0' });
-
-try {
-  await client.connect(transport);
-  assert.deepEqual(client.getServerVersion(), { name: 'qqmail-mcp', version: '1.2.2' });
-  const result = await client.listTools();
-  const names = result.tools.map((tool) => tool.name).sort();
-  assert.deepEqual(names, [
-    'qqmail_connection_status',
-    'qqmail_download_attachment',
-    'qqmail_get_message',
-    'qqmail_get_snippet',
-    'qqmail_list_attachments',
-    'qqmail_list_new_messages'
-  ]);
-  const tools = Object.fromEntries(result.tools.map((tool) => [tool.name, tool]));
-  assert.equal(tools.qqmail_get_message.annotations.readOnlyHint, true);
-  assert.equal(tools.qqmail_get_message.annotations.destructiveHint, false);
-  assert.equal(tools.qqmail_get_message.annotations.idempotentHint, true);
-  assert.equal(tools.qqmail_get_message.annotations.openWorldHint, true);
-  assert.equal(tools.qqmail_download_attachment.annotations.readOnlyHint, false);
-  assert.equal(tools.qqmail_download_attachment.annotations.destructiveHint, false);
-  assert.equal(tools.qqmail_download_attachment.annotations.idempotentHint, false);
-  const invalidId = await client.callTool({ name: 'qqmail_get_message', arguments: { id: '0' } });
-  assert.equal(invalidId.isError, true);
-  assert.match(JSON.stringify(invalidId.content), /positive IMAP UID/);
-  console.log(`MCP smoke test passed: ${names.join(', ')}`);
-} finally {
-  await client.close();
-}

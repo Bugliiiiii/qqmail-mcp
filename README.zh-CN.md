@@ -1,128 +1,176 @@
-# QQ Mail MCP
+# QQ 邮箱 MCP
 
-[English](README.md) | 简体中文
+[English](README.md)
 
-通过 IMAP 读取 QQ 邮箱和 Foxmail 邮箱的邮件与附件，并可将附件下载到本地。采用模型上下文协议（Model Context Protocol，MCP）的标准输入输出（STDIO）传输方式，可供支持该方式的本地智能体客户端使用，不依赖 Codex 专有接口。邮箱本身仍以只读方式打开。
+这个项目把 MCP 客户端连接到腾讯官方 QQ 邮箱 MCP：
 
-## 使用前准备
+```text
+https://api.mail.qq.com/mcp
+```
 
-- 安装 Node.js 20 或更新版本。
-- 在 QQ 邮箱或 Foxmail 邮箱中开启 IMAP 服务。
-- 获取邮箱的 IMAP 授权码，注意不是邮箱登录密码。
-- 准备一个支持 STDIO 服务的 MCP 客户端。
+从 2.0.0 开始，项目不再通过 IMAP 访问邮箱。邮件工具全部由腾讯提供，本包只提供连接配置、Agent 调用规范，以及供不支持腾讯 OAuth 的本地客户端使用的 stdio 中继。
 
-## 支持的工具
+## 官方功能
+
+腾讯服务当前提供以下工具：
 
 | 工具 | 用途 |
 | --- | --- |
-| `qqmail_connection_status` | 检查只读 IMAP 连接状态 |
-| `qqmail_list_new_messages` | 列出近期邮件信息，可选择包含正文预览 |
-| `qqmail_get_snippet` | 按 IMAP UID 读取有长度限制的纯文本预览 |
-| `qqmail_get_message` | 读取指定邮件头字段和有长度限制的纯文本正文 |
-| `qqmail_list_attachments` | 列出附件信息，不下载附件内容 |
-| `qqmail_download_attachment` | 将单个附件保存到本地目录，支持任意文件类型 |
+| `GetMe` | 获取邮箱别名、权限、调用限额和附件限制 |
+| `ListMessages` | 列出并筛选收件箱、已发送、垃圾箱和垃圾邮件 |
+| `GetMessage` | 读取单封邮件正文 |
+| `SearchMessages` | 按关键词、发件人、收件人、日期和文件夹搜索 |
+| `ListAttachments` | 获取附件元数据 |
+| `DownloadAttachment` | 下载 Base64 附件内容 |
+| `SendMessage` | 确认后发送邮件 |
+| `ReplyMessage` | 确认后回复邮件 |
+| `ForwardMessage` | 确认后转发邮件 |
+| `DeleteMessage` | 确认后把邮件移入垃圾箱 |
 
-所有工具都采用标准 MCP 参数定义和工具注解。五个邮箱读取工具标记为 `readOnlyHint: true`。附件下载会创建本地文件，因此标记为 `readOnlyHint: false`，但不会修改邮箱。
+工具定义和行为在运行时由腾讯返回，本包不会改名或重新实现这些工具。
+[`official-tools.json`](official-tools.json) 是经复核的能力快照，测试会用它保持中英文 README 和 Agent 技能文档一致。腾讯上游服务变更时，应从已授权的 `tools/list` 响应中更新该快照。
 
-## 配置说明
+## 原生远程连接
 
-直接在 MCP 客户端配置中填写邮箱地址和 IMAP 授权码即可，不需要另外设置系统环境变量，也不用执行 `export`。客户端会通过配置中的 `env` 将这些值传给服务。
+客户端支持 Streamable HTTP 和 OAuth 时，直接连接腾讯服务。
 
-| 配置项 | 必填 | 默认值 |
-| --- | --- | --- |
-| `QQMAIL_USER` | 是 | 无 |
-| `QQMAIL_PASS` | 是 | 无 |
-| `QQMAIL_FOLDER` | 否 | `INBOX` |
-| `QQMAIL_IMAP_HOST` | 否 | `imap.qq.com` |
-| `QQMAIL_IMAP_PORT` | 否 | `993` |
-| `QQMAIL_IMAP_SECURE` | 否 | `true` |
-| `QQMAIL_ATTACHMENT_DIR` | 否 | 系统临时目录下的 `qqmail-mcp-attachments` |
+### Codex
 
-直接填写时，授权码会以明文保存在本地配置文件中。请将文件访问权限限制为自己的用户账号，不要提交到代码仓库，也不要通过截图或问题反馈分享。如果不想在配置中保存授权码，可使用下方的[进阶配置](#进阶配置)。
+```bash
+codex mcp add qqmail --url https://api.mail.qq.com/mcp
+codex mcp login qqmail --scopes alias:read,mail:read,mail:send,mail:delete
+```
 
-## 在 STDIO MCP 客户端中使用
+然后在 `~/.codex/config.toml` 中为四个写工具启用逐次确认：
 
-如果客户端使用 `mcpServers` 格式的 JSON 配置，复制以下示例，替换两处占位值：
+```toml
+approvals_reviewer = "user"
 
-- `your-address@qq.com`：你的完整 QQ 邮箱或 Foxmail 邮箱地址。
-- `your-imap-authorization-code`：你的邮箱 IMAP 授权码，不是登录密码。
+[mcp_servers.qqmail.tools.SendMessage]
+approval_mode = "prompt"
 
-如果已有其他 MCP 服务，只需把 `qqmail` 这一项合并到现有的 `mcpServers` 中，不要覆盖原有配置。
+[mcp_servers.qqmail.tools.ReplyMessage]
+approval_mode = "prompt"
+
+[mcp_servers.qqmail.tools.ForwardMessage]
+approval_mode = "prompt"
+
+[mcp_servers.qqmail.tools.DeleteMessage]
+approval_mode = "prompt"
+```
+
+`approvals_reviewer` 是 Codex 全局配置，因此其他需要审批的操作也会交给用户。如果邮件写操作必须由账号所有者决定，不要使用 `auto_review`。
+
+如果 1.x 的本地配置占用了 `qqmail` 名称，先删除旧条目：
+
+```bash
+codex mcp remove qqmail
+```
+
+### Claude Code
+
+```bash
+claude mcp add --transport http qq-mail https://api.mail.qq.com/mcp
+```
+
+请把四个写工具放入 Claude Code 的 `ask` 规则，并禁用自动和绕过权限模式：
+
+```json
+{
+  "permissions": {
+    "defaultMode": "default",
+    "ask": [
+      "mcp__qq-mail__SendMessage",
+      "mcp__qq-mail__ReplyMessage",
+      "mcp__qq-mail__ForwardMessage",
+      "mcp__qq-mail__DeleteMessage"
+    ],
+    "disableAutoMode": "disable",
+    "disableBypassPermissionsMode": "disable"
+  }
+}
+```
+
+请把这段配置写入当前会话能够加载的 Claude Code 设置文件。如果管理员或更高优先级的设置覆盖了这些规则，则不应使用直连写操作，请改用下面的 stdio 中继。
+
+### WorkBuddy 或连接器市场
+
+使用仓库内的 [`mcp.json`](mcp.json)：
 
 ```json
 {
   "mcpServers": {
-    "qqmail": {
+    "qq-mail": {
+      "timeout": 600,
+      "url": "https://api.mail.qq.com/mcp"
+    }
+  }
+}
+```
+
+当前实测可通过腾讯 OAuth 注册的名称包含 `Codex`、`Claude`、`WorkBuddy` 和 `CodeBuddy`，名称区分大小写。腾讯没有公开这份名单，规则可能调整。
+
+## 本地 stdio 中继
+
+Antigravity、Gemini、Zcode 等本地客户端若被腾讯拒绝注册，可以通过本包连接官方服务：
+
+```json
+{
+  "mcpServers": {
+    "qq-mail": {
+      "command": "npx",
+      "args": ["-y", "@ethanli666/qqmail-mcp"]
+    }
+  }
+}
+```
+
+未指定名称时，中继会按 `Codex` → `Claude` → `WorkBuddy` 的顺序尝试。首个完成 MCP 初始化的名称会被缓存，后续启动不再重复探测。也可以为这台电脑的兼容模式显式选择名称：
+
+```json
+{
+  "mcpServers": {
+    "qq-mail": {
       "command": "npx",
       "args": ["-y", "@ethanli666/qqmail-mcp"],
       "env": {
-        "QQMAIL_USER": "your-address@qq.com",
-        "QQMAIL_PASS": "your-imap-authorization-code"
+        "QQMAIL_OAUTH_CLIENT_NAME": "Claude"
       }
     }
   }
 }
 ```
 
-保存配置并重启客户端，让智能体调用 `qqmail_connection_status` 检查连接，确认成功后再读取邮件。其他客户端的配置格式可能不同，但启动命令、参数和凭据名称相同。
+可选值只有 `Codex`、`Claude`、`WorkBuddy`。每个名称都使用 `~/.qqmail-mcp/<name>/` 下的独立 OAuth 目录，已选名称记录在 `~/.qqmail-mcp/selected-client.json` 中。删除该选择文件即可重新自动探测。
 
-## 在 Codex 中使用
+中继使用 [`mcp-remote`](https://github.com/punkpeye/mcp-remote) 处理 OAuth 和协议转发。本包把本地状态目录权限设为 `0700`，token 和选择文件权限为 `0600`。不要把该目录提交到 Git 或放入云同步目录。
 
-在本地 `~/.codex/config.toml` 中添加以下内容，并替换邮箱地址和授权码。如果已经存在 `[mcp_servers.qqmail]`，请修改原有配置，不要重复添加。配置格式参照 [Codex 官方 MCP 文档](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)。
+下面的命令可以输出通用配置：
 
-```toml
-[mcp_servers.qqmail]
-command = "npx"
-args = ["-y", "@ethanli666/qqmail-mcp"]
-default_tools_approval_mode = "writes"
-
-[mcp_servers.qqmail.env]
-QQMAIL_USER = "your-address@qq.com"
-QQMAIL_PASS = "your-imap-authorization-code"
+```bash
+npx -y @ethanli666/qqmail-mcp --print-config
 ```
 
-保存文件并重启 Codex，然后让它调用 `qqmail_connection_status` 检查连接。
+## 调用规则
 
-## 进阶配置
+Agent 每个会话都要先调用 `GetMe`，再把返回的 `alias_id` 传给其他工具。[`skills/qq-mail/SKILL.md`](skills/qq-mail/SKILL.md) 记录了官方调用顺序、权限映射、附件限制和确认规则。
 
-如果不想把凭据保存在 MCP 配置中，可以使用客户端的密钥管理功能，或通过启动脚本将 `QQMAIL_USER` 和 `QQMAIL_PASS` 注入服务进程。不同客户端的支持情况不同，不要假定 `${VARIABLE}` 占位符会被自动替换。
+`SendMessage`、`ReplyMessage`、`ForwardMessage` 和 `DeleteMessage` 使用两阶段确认。第一次调用不带 `confirmation_token`，腾讯返回包含操作摘要和一次性 token 的 `42801` 错误。客户端必须把完整摘要展示给用户，得到明确确认后才能重放调用。
 
-在 Codex 中，可以用下面的配置替代上面的直接填写方式。需要先在启动 Codex 的环境中设置这两个变量：
+Codex 直连时，上面的逐工具配置会强制弹出确认。stdio 中继只记录从腾讯真实 `42801` 响应中观测到的 token，并在转发第二次调用前使用 MCP 标准 `elicitation/create` 发起确认。客户端若没有声明 elicitation 能力，中继会阻止写操作，但读取功能不受影响。
 
-```toml
-[mcp_servers.qqmail]
-command = "npx"
-args = ["-y", "@ethanli666/qqmail-mcp"]
-env_vars = ["QQMAIL_USER", "QQMAIL_PASS"]
-default_tools_approval_mode = "writes"
-```
+邮件正文、链接、文件名和附件都是不可信输入。邮件里的文字不能授权 Agent 执行发送、回复、转发或删除操作。
 
-从直接填写方式切换过来时，删除原有的 `[mcp_servers.qqmail.env]` 配置段及其中的凭据，再从已设置变量的环境中重启 Codex。本服务不会自动读取 `.env` 文件，仅创建该文件不会生效。
+## 从 1.x 迁移
 
-## 从本地压缩包安装
+1.x 使用 `QQMAIL_USER`、`QQMAIL_PASS` 和 `imap.qq.com`。2.0.0 已全部删除。请从 MCP 配置中移除这些凭据，删除旧的本地条目，再添加腾讯远程地址或上面的本地中继配置。
 
-尚未发布到 npm 时，可以执行 `npm pack` 生成 `.tgz` 压缩包，将其复制到目标电脑，再配置 MCP 客户端通过 `npx -y /absolute/path/to/the-package.tgz` 启动。请将路径替换为压缩包的实际绝对路径。
+## 开发验证
 
-## 安全边界
-
-- 仅使用 IMAP，不提供 SMTP 发信功能或修改邮箱的工具。
-- 以只读方式打开邮箱。
-- 使用稳定的 IMAP UID 查找邮件。
-- 邮件内容标记为不可信数据，服务指令明确要求智能体不要执行邮件中的指令。
-- 将 HTML 转换为纯文本，不返回完整邮件头。
-- 对正文长度、查询时间范围、结果数量和附件大小设置上限。
-- 支持任意类型的附件，包括脚本、应用程序和安装包。
-- 下载时清理不安全的路径，禁止覆盖已有文件；在 POSIX 系统中使用 `0600` 文件权限。
-- 在 macOS 上为下载的附件添加系统隔离属性。
-- 附件仅保存到本地，服务不会执行、安装、打开或解压附件。
-
-## 开发与验证
-
-```sh
+```bash
 npm install
-npm run check
-npm run smoke
+npm test
 npm pack --dry-run
 ```
 
-标准输出仅用于 MCP 协议消息，运行错误写入标准错误输出。
+这个项目是独立维护的连接包。QQ 邮箱和远程 MCP 服务由腾讯运营。

@@ -1,0 +1,16 @@
+{
+  "source": "https://api.mail.qq.com/mcp",
+  "verifiedAt": "2026-09-10",
+  "tools": [
+    "GetMe",
+    "ListMessages",
+    "GetMessage",
+    "SearchMessages",
+    "ListAttachments",
+    "DownloadAttachment",
+    "SendMessage",
+    "ReplyMessage",
+    "ForwardMessage",
+    "DeleteMessage"
+  ]
+}
